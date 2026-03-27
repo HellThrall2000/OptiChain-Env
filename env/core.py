@@ -1,0 +1,174 @@
+from typing import Tuple, Any, Dict
+from env.schemas import SupplyChainAction, SupplyChainObservation, ProductStatus
+
+class SupplyChainEnv:
+    def __init__(self):
+        self.current_task_id = None
+        self.max_days = 30
+        self.current_day = 0
+        self.cash_balance = 0.0
+        self.inventory = {}
+        self.shipment_pipeline = {}
+        self.history = {"sales_yesterday": {}, "lost_sales_yesterday": {}}
+        self.catalog = {}
+        self.market_signal = ""
+        
+        # Tracking metrics for the Grader (0.0 to 1.0)
+        self.total_profit = 0.0
+        self.optimal_profit_baseline = 0.0
+
+    def reset(self, task_id: str = "task_01_easy") -> SupplyChainObservation:
+        self.current_task_id = task_id
+        self.current_day = 1
+        self.total_profit = 0.0
+        
+        # ==========================================
+        # TASK 1: EASY (Stable Demand)
+        # ==========================================
+        if task_id == "task_01_easy":
+            self.cash_balance = 30000.0  # Safe starting capital
+            self.catalog = {
+                "SKU-LAPTOP": {"margin": 200.0, "holding_cost": 2.0, "penalty": 100.0, "order_cost": 800.0}
+            }
+            self.inventory = {"SKU-LAPTOP": 50}
+            self.shipment_pipeline = {"SKU-LAPTOP": {1: 0, 2: 0, 3: 0}}
+            self.history = {"sales_yesterday": {"SKU-LAPTOP": 0}, "lost_sales_yesterday": {"SKU-LAPTOP": 0}}
+            self.market_signal = "Demand is stable at exactly 10 units per day."
+            # Optimal play over 30 days yields roughly $55,000 to $60,000
+            self.optimal_profit_baseline = 58000.0 
+
+        # ==========================================
+        # TASK 2: MEDIUM (Holiday Demand Spike)
+        # ==========================================
+        elif task_id == "task_02_medium":
+            self.cash_balance = 50000.0
+            self.catalog = {
+                "SKU-LAPTOP": {"margin": 200.0, "holding_cost": 2.0, "penalty": 100.0, "order_cost": 800.0}
+            }
+            self.inventory = {"SKU-LAPTOP": 20}
+            self.shipment_pipeline = {"SKU-LAPTOP": {1: 0, 2: 0, 3: 0}}
+            self.history = {"sales_yesterday": {"SKU-LAPTOP": 0}, "lost_sales_yesterday": {"SKU-LAPTOP": 0}}
+            self.market_signal = "WARNING: Black Friday sale begins on Day 10. Demand will spike from 10 to 40 units per day."
+            self.optimal_profit_baseline = 110000.0
+
+        # ==========================================
+        # TASK 3: HARD (Supply Shock / Delays)
+        # ==========================================
+        elif task_id == "task_03_hard":
+            self.cash_balance = 30000.0
+            self.catalog = {
+                "SKU-LAPTOP": {"margin": 200.0, "holding_cost": 2.0, "penalty": 100.0, "order_cost": 800.0}
+            }
+            self.inventory = {"SKU-LAPTOP": 30}
+            self.shipment_pipeline = {"SKU-LAPTOP": {1: 0, 2: 0, 3: 0}}
+            self.history = {"sales_yesterday": {"SKU-LAPTOP": 0}, "lost_sales_yesterday": {"SKU-LAPTOP": 0}}
+            self.market_signal = "WARNING: Global shipping crisis. Standard 3-day shipping might face extreme delays. Expedited 1-day shipping is secure but expensive."
+            self.optimal_profit_baseline = 45000.0
+            
+        return self.state()
+
+    def state(self) -> SupplyChainObservation:
+        warehouse = []
+        for pid in self.catalog.keys():
+            status = ProductStatus(
+                product_id=pid,
+                current_stock=self.inventory.get(pid, 0),
+                incoming_shipments=self.shipment_pipeline.get(pid, {}),
+                sales_yesterday=self.history["sales_yesterday"].get(pid, 0),
+                lost_sales_yesterday=self.history["lost_sales_yesterday"].get(pid, 0),
+                holding_cost_per_unit=self.catalog[pid]["holding_cost"],
+                stockout_penalty_per_unit=self.catalog[pid]["penalty"],
+                margin_per_unit=self.catalog[pid]["margin"]
+            )
+            warehouse.append(status)
+
+        return SupplyChainObservation(
+            current_day=self.current_day,
+            total_days=self.max_days,
+            cash_balance=self.cash_balance,
+            warehouse_status=warehouse,
+            market_trend_signal=self.market_signal
+        )
+
+    def step(self, action: SupplyChainAction) -> Tuple[SupplyChainObservation, float, bool, Dict[str, Any]]:
+        reward = 0.0
+        
+        # 1. Process Arrivals
+        for pid in self.catalog.keys():
+            arriving_today = self.shipment_pipeline[pid].get(1, 0)
+            self.inventory[pid] += arriving_today
+            
+            new_pipeline = {}
+            for day, qty in self.shipment_pipeline[pid].items():
+                if day > 1:
+                    new_pipeline[day - 1] = qty
+            self.shipment_pipeline[pid] = new_pipeline
+
+        # 2. Process New Orders
+        for order in action.orders:
+            pid = order.product_id
+            if pid not in self.catalog or order.quantity <= 0:
+                continue
+
+            cost = order.quantity * self.catalog[pid]["order_cost"]
+            
+            # HARD TASK LOGIC: Standard shipping breaks, forcing 10-day delay
+            if self.current_task_id == "task_03_hard" and not order.expedite_shipping:
+                delivery_days = 10 
+            else:
+                delivery_days = 1 if order.expedite_shipping else 3
+                
+            if order.expedite_shipping:
+                cost *= 2 
+                
+            if self.cash_balance >= cost:
+                self.cash_balance -= cost
+                reward -= cost
+                current_queued = self.shipment_pipeline[pid].get(delivery_days, 0)
+                self.shipment_pipeline[pid][delivery_days] = current_queued + order.quantity
+
+        # 3. Simulate Daily Demand based on Task
+        demand_qty = 10
+        if self.current_task_id == "task_02_medium" and 10 <= self.current_day <= 17:
+            demand_qty = 40 # Black Friday Spike
+            
+        actual_demand = {"SKU-LAPTOP": demand_qty} 
+
+        # 4. Fulfill Demand & Calculate Cash Flow
+        for pid, demand in actual_demand.items():
+            stock = self.inventory[pid]
+            sold = min(stock, demand)
+            missed = demand - sold
+            
+            self.inventory[pid] -= sold
+            self.history["sales_yesterday"][pid] = sold
+            self.history["lost_sales_yesterday"][pid] = missed
+            
+            profit = sold * self.catalog[pid]["margin"]
+            holding_cost = self.inventory[pid] * self.catalog[pid]["holding_cost"]
+            penalty = missed * self.catalog[pid]["penalty"]
+            
+            daily_net = profit - holding_cost - penalty
+            self.cash_balance += profit
+            reward += daily_net
+
+        self.total_profit += reward
+
+        # 5. Advance Time
+        self.current_day += 1
+        done = self.current_day > self.max_days
+        
+        info = {"current_profit": self.total_profit}
+        return self.state(), reward, done, info
+
+    # ==========================================
+    # OPENENV REQUIRED GRADER (0.0 to 1.0)
+    # ==========================================
+    def get_grader_score(self) -> float:
+        """Returns a normalized score between 0.0 and 1.0 based on profit performance."""
+        if self.total_profit <= 0:
+            return 0.0 # Bankrupt or lost money
+            
+        score = self.total_profit / self.optimal_profit_baseline
+        # Clamp between 0.0 and 1.0
+        return max(0.0, min(1.0, score))

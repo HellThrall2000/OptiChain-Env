@@ -1,0 +1,18 @@
+version: "1.0.0"
+name: "optichain-inventory-v1"
+description: "AI-driven supply chain and inventory optimization environment."
+entry_point: "app.main:app"
+tasks:
+  - id: "task_01_easy"
+    name: "Stable Demand"
+    difficulty: "easy"
+  - id: "task_02_medium"
+    name: "Holiday Spike"
+    difficulty: "medium"
+  - id: "task_03_hard"
+    name: "Supply Chain Crisis"
+    difficulty: "hard"
+tags:
+  - "supply-chain"
+  - "optimization"
+  - "logistics"
