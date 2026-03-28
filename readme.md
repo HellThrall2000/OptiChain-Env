@@ -48,7 +48,7 @@ OptiChain-Env/
 
 ---
 
-## PR Request Guideline
+## PR Guideline
 Step 1: Create the file
 In your root directory, create a new folder named .github. Inside that folder, create a file named PULL_REQUEST_TEMPLATE.md.
 
