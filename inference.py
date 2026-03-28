@@ -1,3 +1,11 @@
+"""
+Inference Script for OptiChain-Env
+===================================
+MANDATORY HACKATHON CONFIGURATION
+- Uses API_BASE_URL, MODEL_NAME, and HF_TOKEN/API_KEY from the environment.
+- Uses OpenAI Client for all LLM calls.
+"""
+
 import os
 import json
 from dotenv import load_dotenv
@@ -5,27 +13,47 @@ from openai import OpenAI
 from env.core import SupplyChainEnv
 from env.schemas import SupplyChainAction
 
-# Load environment variables
+# Load environment variables for local testing
 load_dotenv()
 
 # =================================================================
-# 🔵 AI CLIENT CONFIGURATION(Global so the UI can use it too)
+# 🔵 AI CLIENT CONFIGURATION
 # =================================================================
-# Uncomment the Groq block below when you are ready to switch from Ollama
-"""
-client = OpenAI(
-    base_url="https://api.groq.com/openai/v1",
-    api_key=os.environ.get("GROQ_API_KEY") 
-)
-model_name = "" 
-"""
 
-# Currently set to local Ollama testing
+# -----------------------------------------------------------------
+# OPTION 1: OLLAMA (ACTIVE FOR LOCAL TESTING)
+# -----------------------------------------------------------------
+MODEL_NAME = os.environ.get("MODEL_NAME")
 client = OpenAI(
-    base_url=os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1"),
-    api_key="ollama" 
+    base_url=os.environ.get("API_BASE_URL"),
+    api_key=os.environ.get("API_KEY")
+    
 )
-model_name = "llama3.2:3b"
+
+# -----------------------------------------------------------------
+# OPTION 2: GROQ CLOUD (COMMENTED OUT)
+# -----------------------------------------------------------------
+# API_BASE_URL = "https://api.groq.com/openai/v1"
+# API_KEY = os.environ.get("GROQ_API_KEY")
+# MODEL_NAME = "llama-3.3-70b-versatile"
+#
+# client = OpenAI(
+#     base_url=API_BASE_URL,
+#     api_key=API_KEY
+# )
+
+# -----------------------------------------------------------------
+# OPTION 3: HACKATHON SUBMISSION (MANDATORY - UNCOMMENT BEFORE SUBMITTING)
+# -----------------------------------------------------------------
+# API_BASE_URL = os.getenv("API_BASE_URL")
+# API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
+# MODEL_NAME = os.getenv("MODEL_NAME")
+#
+# client = OpenAI(
+#     base_url=API_BASE_URL,
+#     api_key=API_KEY
+# )
+
 # =================================================================
 
 
@@ -42,7 +70,7 @@ def get_agent_action(obs):
         "Laptops cost $800 each. Standard shipping takes 3 days.\n"
         "CRITICAL STRATEGY:\n"
         "1. NEVER let the cash balance drop below $8,000.\n"
-        "2. If 'CURRENT STOCK' is less than 20 AND you have at least $20,000 in cash, order exactly 20 laptops.\n"
+        "2. If 'CURRENT STOCK' is less than 20 AND you have at least $20,000 in cash, order exactly laptops.\n"
         "3. If 'CURRENT STOCK' is 20 or more, OR cash is low, order 0 laptops to let stock arrive.\n"
         "Analyze the state and write a 1-sentence plan stating exactly how many laptops to order today."
     )
@@ -56,7 +84,7 @@ def get_agent_action(obs):
 
     try:
         analyst_response = client.chat.completions.create(
-            model=model_name,
+            model= MODEL_NAME,
             messages=[
                 {"role": "system", "content": analyst_prompt},
                 {"role": "user", "content": analyst_context}
@@ -83,7 +111,7 @@ def get_agent_action(obs):
 
     try:
         executor_response = client.chat.completions.create(
-            model=model_name,
+            model= MODEL_NAME,
             messages=[
                 {"role": "system", "content": executor_prompt},
                 {"role": "user", "content": f"ANALYST PLAN: {strategic_plan}"}
@@ -101,7 +129,7 @@ def get_agent_action(obs):
     return action, strategic_plan
 
 
-def run_baseline():
+def main():
     """
     Runs the full CLI hackathon evaluation loop.
     """
@@ -111,6 +139,8 @@ def run_baseline():
 
     print("\n" + "═"*70)
     print("🚀 OPENENV MULTI-AGENT EVALUATION: START")
+    print(f"📡 API BASE: {API_BASE_URL}")
+    print(f"🧠 MODEL: {MODEL_NAME}")
     print("═"*70)
 
     for task_id in tasks:
@@ -119,7 +149,6 @@ def run_baseline():
         done = False
 
         while not done:
-            # ---> MAGIC HAPPENS HERE <---
             action, strategic_plan = get_agent_action(obs)
             
             # Print the AI's thoughts to the terminal
@@ -147,5 +176,6 @@ def run_baseline():
         print(f"{tid:20} : {s:.2f} / 1.0  {rating}")
     print("═"*70 + "\n")
 
+
 if __name__ == "__main__":
-    run_baseline()
+    main()
