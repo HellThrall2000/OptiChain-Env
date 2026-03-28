@@ -1,0 +1,68 @@
+# Prerequisites
+*.d
+
+# Compiled Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environments
+venv/
+env/
+.env_venv/
+.venv/
+env.bak/
+venv.bak/
+
+# Environment Variables (CRITICAL for security)
+.env
+.env.local
+.env.*
+
+# Logs and databases
+*.log
+*.sqlite3
+*.db
+
+# IDEs and Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Project specific ignores (if you generate output graphs or reports)
+/outputs/
+/results/
