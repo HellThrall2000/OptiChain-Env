@@ -77,7 +77,7 @@ def demo_step_sim():
     }
 
 
-# --- 4. OFFICIAL OPENENV ENDPOINTS ---
+# --- 4.OFFICIAL OPENENV ENDPOINTS---
 class ResetRequest(BaseModel):
     task_id: str = "task_01_easy"
 
