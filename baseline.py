@@ -17,7 +17,7 @@ client = OpenAI(
     base_url="https://api.groq.com/openai/v1",
     api_key=os.environ.get("GROQ_API_KEY") 
 )
-model_name = "llama-3.3-70b-versatile" 
+model_name = "" 
 """
 
 # Currently set to local Ollama testing
