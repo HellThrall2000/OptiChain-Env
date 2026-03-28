@@ -62,34 +62,45 @@ def get_agent_action(obs):
     Takes the current environment observation and runs the Multi-Agent pipeline.
     Returns: (SupplyChainAction, reasoning_string)
     """
+    # Calculate Total Pipeline (Stock + Incoming) so the AI stops panic-ordering
+    current_stock = obs.warehouse_status[0].current_stock
+    incoming_shipments = sum(obs.warehouse_status[0].incoming_shipments.values())
+    total_inventory_position = current_stock + incoming_shipments
+
     # ---------------------------------------------------------
     # AGENT 1: THE ANALYST (Reasoning & Math)
     # ---------------------------------------------------------
     analyst_prompt = (
-        "You are the Lead Supply Chain Analyst. Your goal is to maximize profit and avoid bankruptcy.\n"
-        "Laptops cost $800 each. Standard shipping takes 3 days.\n"
-        "CRITICAL STRATEGY:\n"
-        "1. NEVER let the cash balance drop below $8,000.\n"
-        "2. If 'CURRENT STOCK' is less than 20 AND you have at least $20,000 in cash, order exactly laptops.\n"
-        "3. If 'CURRENT STOCK' is 20 or more, OR cash is low, order 0 laptops to let stock arrive.\n"
-        "Analyze the state and write a 1-sentence plan stating exactly how many laptops to order today."
+        "You are a Senior Supply Chain AI. Your goal is to maximize profit.\n"
+        "ECONOMICS: Laptops cost $800, sell for $1000 ($200 profit). Holding cost is $2/day. Penalty for stockout is $100/unit.\n"
+        "STRATEGY:\n"
+        "1. INVENTORY POSITION = Current Stock + Incoming Shipments.\n"
+        "2. BASE TARGET: Maintain an Inventory Position of exactly 40 units (Covers 4 days of standard 10/day demand).\n"
+        "3. HOLIDAY SPIKE: If the Market Signal mentions 'Black Friday', increase Target to 160 units immediately.\n"
+        "4. CRISIS: If the Market Signal mentions '10-day delay', increase Target to 110 units immediately.\n"
+        "5. RULE: Order = (Target - Inventory Position). If the result is negative or 0, order 0.\n"
+        "6. CASH GUARD: Never place an order if Cash is below $8,000.\n"
+        "Respond with a 1-sentence plan stating exactly the number of laptops to order."
     )
     
     analyst_context = (
+        f"DAY: {obs.current_day}/30\n"
         f"MARKET SIGNAL: {obs.market_trend_signal}\n"
         f"CASH BALANCE: ${obs.cash_balance}\n"
-        f"CURRENT STOCK: {obs.warehouse_status[0].current_stock}\n"
-        "Write your plan:"
+        f"CURRENT STOCK: {current_stock}\n"
+        f"INCOMING SHIPMENTS (In Transit): {incoming_shipments}\n"
+        f"TOTAL INVENTORY POSITION: {total_inventory_position}\n"
+        "Plan:"
     )
 
     try:
         analyst_response = client.chat.completions.create(
-            model= MODEL_NAME,
+            model=MODEL_NAME,
             messages=[
                 {"role": "system", "content": analyst_prompt},
                 {"role": "user", "content": analyst_context}
             ],
-            temperature=0.2 
+            temperature=0.0 # Keep temperature at 0 for strict math logic
         )
         strategic_plan = analyst_response.choices[0].message.content
 
@@ -111,7 +122,7 @@ def get_agent_action(obs):
 
     try:
         executor_response = client.chat.completions.create(
-            model= MODEL_NAME,
+            model=MODEL_NAME,
             messages=[
                 {"role": "system", "content": executor_prompt},
                 {"role": "user", "content": f"ANALYST PLAN: {strategic_plan}"}
@@ -139,8 +150,6 @@ def main():
 
     print("\n" + "═"*70)
     print("🚀 OPENENV MULTI-AGENT EVALUATION: START")
-    print(f"📡 API BASE: {API_BASE_URL}")
-    print(f"🧠 MODEL: {MODEL_NAME}")
     print("═"*70)
 
     for task_id in tasks:
