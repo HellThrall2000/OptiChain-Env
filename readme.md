@@ -44,3 +44,44 @@ OptiChain-Env/
 ├── baseline.py          # Multi-Agent Logic (Analyst & Executor)
 ├── openenv.yaml         # Meta OpenEnv Configuration
 └── requirements.txt     # Environment Dependencies
+```
+
+---
+
+##PR Request Guideline
+Step 1: Create the file
+In your root directory, create a new folder named .github. Inside that folder, create a file named PULL_REQUEST_TEMPLATE.md.
+
+Your folder structure should look like this:
+
+Plaintext
+OptiChain-Env/
+├── .github/
+│   └── PULL_REQUEST_TEMPLATE.md
+├── app/
+...
+Step 2: Paste the Template
+Paste this markdown code into the PULL_REQUEST_TEMPLATE.md file:
+
+Markdown
+## 📝 Description
+* ## 🔄 Type of Change
+- [ ] 🐛 Bug fix (non-breaking change which fixes an issue)
+- [ ] ✨ New feature (non-breaking change which adds functionality)
+- [ ] ♻️ Refactoring (code changes that neither fix a bug nor add a feature)
+- [ ] 🎨 UI/Frontend update (changes Svelte/HTML/CSS without touching core logic)
+
+## ✅ OpenEnv Compliance Checklist
+- [ ] My code strictly adheres to the Meta OpenEnv specification.
+- [ ] I have not broken the `/reset`, `/step`, or `/state` API endpoints.
+- [ ] I have verified that `env.get_grader_score()` still returns a float between 0.0 and 1.0.
+- [ ] I ran `python baseline.py` locally and the LLM agent completed the simulation without crashing.
+
+## 📸 Screenshots / Outputs (if applicable)
+Step 3: Commit and Push
+Commit this new file to your main branch before you lock it down:
+
+Bash
+git add .github/PULL_REQUEST_TEMPLATE.md
+git commit -m "chore: add PR template for strict hackathon workflow"
+git push origin main
