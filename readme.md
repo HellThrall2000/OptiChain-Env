@@ -54,7 +54,7 @@ In your root directory, create a new folder named .github. Inside that folder, c
 
 Your folder structure should look like this:
 
-Plaintext
+```text
 OptiChain-Env/
 ├── .github/
 │   └── PULL_REQUEST_TEMPLATE.md
@@ -62,7 +62,7 @@ OptiChain-Env/
 ...
 Step 2: Paste the Template
 Paste this markdown code into the PULL_REQUEST_TEMPLATE.md file:
-
+```
 Markdown
 ## 📝 Description
 * ## 🔄 Type of Change
