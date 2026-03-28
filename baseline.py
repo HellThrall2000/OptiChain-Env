@@ -9,7 +9,7 @@ from env.schemas import SupplyChainAction
 load_dotenv()
 
 # =================================================================
-# 🔵 AI CLIENT CONFIGURATION (Global so the UI can use it too)
+# 🔵 AI CLIENT CONFIGURATION(Global so the UI can use it too)
 # =================================================================
 # Uncomment the Groq block below when you are ready to switch from Ollama
 """
