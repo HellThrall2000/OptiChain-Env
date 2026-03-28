@@ -23,36 +23,14 @@ load_dotenv()
 # -----------------------------------------------------------------
 # OPTION 1: OLLAMA (ACTIVE FOR LOCAL TESTING)
 # -----------------------------------------------------------------
-MODEL_NAME = os.environ.get("MODEL_NAME")
+API_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+API_KEY = "ollama"
+MODEL_NAME = os.environ.get("MODEL_NAME", "llama3.2:3b")
+
 client = OpenAI(
-    base_url=os.environ.get("API_BASE_URL"),
-    api_key=os.environ.get("API_KEY")
-    
+    base_url=API_BASE_URL,
+    api_key=API_KEY
 )
-
-# -----------------------------------------------------------------
-# OPTION 2: GROQ CLOUD (COMMENTED OUT)
-# -----------------------------------------------------------------
-# API_BASE_URL = "https://api.groq.com/openai/v1"
-# API_KEY = os.environ.get("GROQ_API_KEY")
-# MODEL_NAME = "llama-3.3-70b-versatile"
-#
-# client = OpenAI(
-#     base_url=API_BASE_URL,
-#     api_key=API_KEY
-# )
-
-# -----------------------------------------------------------------
-# OPTION 3: HACKATHON SUBMISSION (MANDATORY - UNCOMMENT BEFORE SUBMITTING)
-# -----------------------------------------------------------------
-# API_BASE_URL = os.getenv("API_BASE_URL")
-# API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
-# MODEL_NAME = os.getenv("MODEL_NAME")
-#
-# client = OpenAI(
-#     base_url=API_BASE_URL,
-#     api_key=API_KEY
-# )
 
 # =================================================================
 
@@ -62,35 +40,63 @@ def get_agent_action(obs):
     Takes the current environment observation and runs the Multi-Agent pipeline.
     Returns: (SupplyChainAction, reasoning_string)
     """
-    # Calculate Total Pipeline (Stock + Incoming) so the AI stops panic-ordering
+    # =========================================================
+    # 🧠 PYTHON LOGIC ENGINE & GUARDRAILS
+    # =========================================================
     current_stock = obs.warehouse_status[0].current_stock
     incoming_shipments = sum(obs.warehouse_status[0].incoming_shipments.values())
     total_inventory_position = current_stock + incoming_shipments
+    days_remaining = obs.total_days - obs.current_day
+    
+    # 1. Detect Crisis
+    is_crisis = "crisis" in obs.market_trend_signal.lower() or "delay" in obs.market_trend_signal.lower()
+    is_spike = "Black Friday" in obs.market_trend_signal
+    
+    # 2. Dynamic Economics
+    unit_cost = 900 if is_crisis else 800
+    expedite_flag = "true" if is_crisis else "false"
+    lead_time = 1 if is_crisis else 2
+    
+    # 3. Affordability
+    safe_cash = obs.cash_balance - 8000
+    max_affordable = int(safe_cash // unit_cost) if safe_cash > 0 else 0
 
-    # ---------------------------------------------------------
-    # AGENT 1: THE ANALYST (Reasoning & Math)
-    # ---------------------------------------------------------
+    # 4. Target Setting
+    target = 40
+    if is_spike:
+        target = 160
+    elif is_crisis:
+        target = 60
+        
+    shortfall = max(0, target - total_inventory_position)
+    recommended_order = min(shortfall, max_affordable)
+    
+    # 🛑 GUARDRAIL 1: BURN-DOWN STRATEGY
+    # Do not buy more inventory than we can physically sell in the remaining days.
+    max_daily_demand = 40 if is_spike else 10
+    max_possible_sales = days_remaining * max_daily_demand
+    if total_inventory_position >= max_possible_sales:
+        recommended_order = 0
+        
+    # 🛑 GUARDRAIL 2: SHIPPING TRAP
+    # Do not order if the shipping takes longer than the days left in the simulation!
+    if days_remaining <= lead_time:
+        recommended_order = 0
+
+    # =========================================================
+    # 🤖 AGENT 1: THE ANALYST (UI Explanation)
+    # =========================================================
     analyst_prompt = (
-        "You are a Senior Supply Chain AI. Your goal is to maximize profit.\n"
-        "ECONOMICS: Laptops cost $800, sell for $1000 ($200 profit). Holding cost is $2/day. Penalty for stockout is $100/unit.\n"
-        "STRATEGY:\n"
-        "1. INVENTORY POSITION = Current Stock + Incoming Shipments.\n"
-        "2. BASE TARGET: Maintain an Inventory Position of exactly 40 units (Covers 4 days of standard 10/day demand).\n"
-        "3. HOLIDAY SPIKE: If the Market Signal mentions 'Black Friday', increase Target to 160 units immediately.\n"
-        "4. CRISIS: If the Market Signal mentions '10-day delay', increase Target to 110 units immediately.\n"
-        "5. RULE: Order = (Target - Inventory Position). If the result is negative or 0, order 0.\n"
-        "6. CASH GUARD: Never place an order if Cash is below $8,000.\n"
-        "Respond with a 1-sentence plan stating exactly the number of laptops to order."
+        "You are a Supply Chain Manager explaining a decision to stakeholders.\n"
+        "The system has calculated the perfect mathematically sound order quantity.\n"
+        "Write exactly ONE sentence explaining that you are ordering the RECOMMENDED_ORDER amount."
     )
     
     analyst_context = (
         f"DAY: {obs.current_day}/30\n"
-        f"MARKET SIGNAL: {obs.market_trend_signal}\n"
-        f"CASH BALANCE: ${obs.cash_balance}\n"
-        f"CURRENT STOCK: {current_stock}\n"
-        f"INCOMING SHIPMENTS (In Transit): {incoming_shipments}\n"
-        f"TOTAL INVENTORY POSITION: {total_inventory_position}\n"
-        "Plan:"
+        f"MARKET: {obs.market_trend_signal}\n"
+        f"RECOMMENDED_ORDER: {recommended_order}\n"
+        "Explain the decision:"
     )
 
     try:
@@ -100,32 +106,34 @@ def get_agent_action(obs):
                 {"role": "system", "content": analyst_prompt},
                 {"role": "user", "content": analyst_context}
             ],
-            temperature=0.0 # Keep temperature at 0 for strict math logic
+            temperature=0.0
         )
         strategic_plan = analyst_response.choices[0].message.content
-
     except Exception as e:
-        strategic_plan = f"Analyst Error: {e}. Defaulting to 0."
+        strategic_plan = f"Analyst Error: {e}. Defaulting to {recommended_order}."
 
-    # ---------------------------------------------------------
-    # AGENT 2: THE EXECUTOR (JSON Formatting)
-    # ---------------------------------------------------------
+    # =========================================================
+    # 🤖 AGENT 2: THE EXECUTOR (Foolproof JSON Generator)
+    # =========================================================
+    # We construct the exact JSON string we want the AI to output.
+    if recommended_order > 0:
+        exact_json = f'{{"orders": [{{"product_id": "SKU-LAPTOP", "quantity": {recommended_order}, "expedite_shipping": {expedite_flag}}}]}}'
+    else:
+        exact_json = '{"orders": []}'
+
     executor_prompt = (
-        "You are a strict Data Entry Agent. Convert the Analyst's plan into the exact JSON format required.\n"
-        "RULES:\n"
-        "1. The 'product_id' MUST ALWAYS BE exactly \"SKU-LAPTOP\". Do not use any other string.\n"
-        "2. The 'expedite_shipping' field MUST BE false.\n"
-        "3. If the plan says do nothing or 0, output an empty orders array: {\"orders\": []}\n"
-        "4. Output ONLY valid JSON. No markdown blocks.\n"
-        f"SCHEMA REQUIRED: {SupplyChainAction.model_json_schema()}"
+        "You are a strict Data Entry API. You must output ONLY valid JSON.\n"
+        "Do not output markdown, do not output explanations."
     )
+    
+    executor_context = f"Output this EXACT JSON string and nothing else:\n{exact_json}"
 
     try:
         executor_response = client.chat.completions.create(
             model=MODEL_NAME,
             messages=[
                 {"role": "system", "content": executor_prompt},
-                {"role": "user", "content": f"ANALYST PLAN: {strategic_plan}"}
+                {"role": "user", "content": executor_context}
             ],
             response_format={"type": "json_object"},
             temperature=0.0 
@@ -135,7 +143,14 @@ def get_agent_action(obs):
         action = SupplyChainAction.model_validate_json(content)
         
     except Exception as e:
-        action = SupplyChainAction(orders=[])
+        # Failsafe guaranteed fallback
+        if recommended_order > 0:
+            from env.schemas import PurchaseOrder
+            action = SupplyChainAction(orders=[
+                PurchaseOrder(product_id="SKU-LAPTOP", quantity=recommended_order, expedite_shipping=is_crisis)
+            ])
+        else:
+            action = SupplyChainAction(orders=[])
 
     return action, strategic_plan
 
@@ -150,6 +165,7 @@ def main():
 
     print("\n" + "═"*70)
     print("🚀 OPENENV MULTI-AGENT EVALUATION: START")
+    print(f"🧠 MODEL: {MODEL_NAME}")
     print("═"*70)
 
     for task_id in tasks:

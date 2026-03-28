@@ -31,7 +31,9 @@ MANIFEST
 
 # Virtual Environments
 venv/
-env/
+env/__pycache__/
+app/__pycache__/
+__pycache__/
 .env_venv/
 .venv/
 env.bak/
