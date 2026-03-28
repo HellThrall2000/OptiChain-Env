@@ -1,7 +1,16 @@
+import os
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+
 from env.core import SupplyChainEnv
 from env.schemas import SupplyChainAction
+
+# We import the AI logic from your baseline script
+# (We will update baseline.py to export this function next)
+from baseline import get_agent_action
 
 # Initialize the FastAPI application
 app = FastAPI(
@@ -10,17 +19,67 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# --- 1. CORS MIDDLEWARE ---
+# Required for Hugging Face Spaces to allow the UI to talk to the API
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], 
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Instantiate our global environment instance
 active_env = SupplyChainEnv()
 
-# Helper model so the user can specify which task to load
-class ResetRequest(BaseModel):
-    task_id: str = "task_01_easy"
+# --- 2. FRONTEND UI ROUTING ---
+# Ensure the "static" directory exists in your root folder!
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/")
+def serve_dashboard():
+    """Serves the OptiChain HTML dashboard instantly on the root URL."""
+    # Ensure your HTML file is named index.html and is inside the static/ folder
+    return FileResponse("static/index.html")
+
+@app.get("/health")
 def health_check():
     """Automated ping for Hugging Face Spaces. Must return 200."""
     return {"status": "healthy", "message": "OpenEnv is running!"}
+
+
+# --- 3. UI DEMO BRIDGE ---
+@app.post("/demo/step_sim")
+def demo_step_sim():
+    """
+    Bridge endpoint for the frontend. 
+    It asks the AI Agent for a decision, steps the env, and returns both to the UI.
+    """
+    obs = active_env.state()
+    
+    # Ask the LLM (via baseline.py) what to do
+    try:
+        action, reasoning = get_agent_action(obs)
+    except Exception as e:
+        # Fallback if the API fails
+        action = SupplyChainAction(orders=[])
+        reasoning = f"API Error: {str(e)}. Defaulting to 0 orders."
+
+    # Execute the action in the environment
+    next_obs, reward, done, info = active_env.step(action)
+    
+    return {
+        "observation": next_obs,
+        "reward": reward,
+        "done": done,
+        "action_taken": action.model_dump(),
+        "reasoning": reasoning
+    }
+
+
+# --- 4. OFFICIAL OPENENV ENDPOINTS ---
+class ResetRequest(BaseModel):
+    task_id: str = "task_01_easy"
 
 @app.post("/reset")
 def reset_env(req: ResetRequest = None):
@@ -68,8 +127,5 @@ def get_grader():
 
 @app.post("/baseline")
 def trigger_baseline():
-    """
-    Hackathon requirement: Trigger the baseline script.
-    Note: For a production HF Space, you'd run this as a background task.
-    """
+    """Hackathon requirement: Trigger the baseline script."""
     return {"message": "Baseline endpoint active. To run full eval, execute baseline.py locally."}

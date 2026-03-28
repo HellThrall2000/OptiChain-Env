@@ -1,0 +1,872 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OptiChain — AI Supply Chain Optimizer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&family=Syne:wght@400;500;600;700;800&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg:        #0a0b0d; --bg2:       #0f1114; --bg3:       #14171c; --bg4:       #1a1e25;
+    --border:    rgba(255,255,255,0.07); --border2:   rgba(255,255,255,0.12); --border3:   rgba(255,255,255,0.18);
+    --text:      #e8e6e0; --text2:     #8a8880; --text3:     #4a4845;
+    --accent:    #e8c84a; --accent2:   #c4a832; --accent-bg: rgba(232,200,74,0.08);
+    --green:     #4aaa6e; --green-bg:  rgba(74,170,110,0.10);
+    --red:       #d95f5f; --red-bg:    rgba(217,95,95,0.10);
+    --blue:      #5b9bd5; --blue-bg:   rgba(91,155,213,0.10);
+    --orange:    #e07a3a; --orange-bg: rgba(224,122,58,0.10);
+    --font-display: 'Syne', sans-serif; --font-serif:   'Instrument Serif', serif; --font-mono:    'DM Mono', monospace;
+    --r:  6px; --r2: 10px; --r3: 14px;
+  }
+  html { font-size: 14px; }
+  body { background: var(--bg); color: var(--text); font-family: var(--font-mono); font-weight: 400; min-height: 100vh; overflow-x: hidden; }
+  body::before { content: ''; position: fixed; inset: 0; background-image: linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px); background-size: 48px 48px; pointer-events: none; z-index: 0; }
+  body::after { content: ''; position: fixed; inset: 0; background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.08) 2px, rgba(0,0,0,0.08) 4px); pointer-events: none; z-index: 0; }
+  .app { position: relative; z-index: 1; display: grid; grid-template-rows: auto 1fr; min-height: 100vh; }
+  header { border-bottom: 1px solid var(--border); padding: 0 32px; display: flex; align-items: center; justify-content: space-between; height: 56px; background: rgba(10,11,13,0.95); backdrop-filter: blur(12px); position: sticky; top: 0; z-index: 100; }
+  .header-left { display: flex; align-items: center; gap: 16px; }
+  .logo { font-family: var(--font-display); font-weight: 800; font-size: 17px; letter-spacing: -0.02em; color: var(--text); }
+  .logo span { color: var(--accent); }
+  .header-tag { font-size: 10px; font-weight: 500; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text3); border: 1px solid var(--border2); padding: 3px 8px; border-radius: 3px; }
+  .header-right { display: flex; align-items: center; gap: 20px; }
+  .status-dot { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--text2); font-family: var(--font-mono); }
+  .status-dot::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse-dot 2s ease-in-out infinite; }
+  .status-dot.idle::before { background: var(--text3); box-shadow: none; animation: none; }
+  .status-dot.running::before { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+  @keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  .header-score { font-family: var(--font-display); font-size: 13px; font-weight: 600; color: var(--text2); }
+  .header-score span { color: var(--accent); }
+  main { display: grid; grid-template-columns: 280px 1fr; gap: 0; }
+  .sidebar { border-right: 1px solid var(--border); background: var(--bg2); padding: 24px 20px; display: flex; flex-direction: column; gap: 28px; min-height: calc(100vh - 56px); }
+  .sidebar-section-label { font-size: 9px; font-weight: 500; letter-spacing: 0.16em; text-transform: uppercase; color: var(--text3); margin-bottom: 10px; }
+  .task-card { border: 1px solid var(--border); border-radius: var(--r2); padding: 14px; cursor: pointer; transition: border-color 0.2s, background 0.2s; margin-bottom: 8px; position: relative; overflow: hidden; }
+  .task-card::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; border-radius: 3px 0 0 3px; background: transparent; transition: background 0.2s; }
+  .task-card:hover { border-color: var(--border2); background: var(--bg3); }
+  .task-card.active { border-color: var(--accent); background: var(--accent-bg); }
+  .task-card.active::before { background: var(--accent); }
+  .task-card.active-green { border-color: var(--green); background: var(--green-bg); }
+  .task-card.active-green::before { background: var(--green); }
+  .task-card.active-red { border-color: var(--red); background: var(--red-bg); }
+  .task-card.active-red::before { background: var(--red); }
+  .task-card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px; }
+  .task-name { font-family: var(--font-display); font-size: 13px; font-weight: 600; color: var(--text); }
+  .diff-badge { font-size: 9px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; padding: 2px 7px; border-radius: 3px; }
+  .diff-easy   { background: var(--green-bg); color: var(--green); border: 1px solid rgba(74,170,110,0.2); }
+  .diff-medium { background: var(--orange-bg); color: var(--orange); border: 1px solid rgba(224,122,58,0.2); }
+  .diff-hard   { background: var(--red-bg); color: var(--red); border: 1px solid rgba(217,95,95,0.2); }
+  .task-meta { font-size: 11px; color: var(--text3); line-height: 1.6; }
+  .task-meta strong { color: var(--text2); font-weight: 400; }
+  .ctrl-group { display: flex; flex-direction: column; gap: 8px; }
+  .btn { display: flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--border2); background: transparent; color: var(--text); font-family: var(--font-mono); font-size: 12px; padding: 9px 14px; border-radius: var(--r); cursor: pointer; transition: all 0.15s; letter-spacing: 0.02em; width: 100%; }
+  .btn:hover { background: var(--bg3); border-color: var(--border3); }
+  .btn:active { transform: scale(0.98); }
+  .btn:disabled { opacity: 0.3; cursor: default; transform: none; }
+  .btn-primary { background: var(--accent); border-color: var(--accent); color: #0a0b0d; font-weight: 500; }
+  .btn-primary:hover { background: var(--accent2); border-color: var(--accent2); }
+  .btn-danger { border-color: rgba(217,95,95,0.4); color: var(--red); }
+  .btn-danger:hover { background: var(--red-bg); }
+  .ico { width: 14px; height: 14px; flex-shrink: 0; }
+  .speed-row { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
+  .speed-label { font-size: 11px; color: var(--text3); white-space: nowrap; }
+  input[type=range] { flex: 1; appearance: none; height: 3px; background: var(--border2); border-radius: 2px; outline: none; }
+  input[type=range]::-webkit-slider-thumb { appearance: none; width: 14px; height: 14px; border-radius: 50%; background: var(--accent); cursor: pointer; border: 2px solid var(--bg); }
+  .speed-val { font-size: 11px; color: var(--accent); min-width: 20px; }
+  .stat-strip { display: flex; gap: 8px; flex-direction: column; }
+  .stat-item { display: flex; justify-content: space-between; align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--border); }
+  .stat-item:last-child { border-bottom: none; }
+  .stat-key { font-size: 11px; color: var(--text3); }
+  .stat-val { font-family: var(--font-mono); font-size: 12px; color: var(--text); }
+  .stat-val.up { color: var(--green); }
+  .stat-val.down { color: var(--red); }
+  .stat-val.warn { color: var(--orange); }
+  .stat-val.accent { color: var(--accent); }
+  .content { padding: 24px 28px; display: flex; flex-direction: column; gap: 20px; background: var(--bg); }
+  .metrics-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+  .metric-card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--r2); padding: 16px; position: relative; overflow: hidden; transition: border-color 0.2s; }
+  .metric-card:hover { border-color: var(--border2); }
+  .metric-card::after { content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 2px; background: transparent; transition: background 0.3s; }
+  .metric-card.flash::after { background: var(--accent); }
+  .metric-label { font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text3); margin-bottom: 10px; font-weight: 500; }
+  .metric-val { font-family: var(--font-display); font-size: 26px; font-weight: 700; color: var(--text); line-height: 1; margin-bottom: 6px; transition: color 0.3s; }
+  .metric-val.green  { color: var(--green); }
+  .metric-val.red    { color: var(--red); }
+  .metric-val.amber  { color: var(--orange); }
+  .metric-val.accent { color: var(--accent); }
+  .metric-sub { font-size: 11px; color: var(--text3); }
+  .progress-track { height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; margin-top: 8px; }
+  .progress-fill { height: 100%; border-radius: 2px; background: var(--accent); transition: width 0.4s cubic-bezier(0.4,0,0.2,1); }
+  .progress-fill.green  { background: var(--green); }
+  .progress-fill.red    { background: var(--red); }
+  .charts-row { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; }
+  .chart-panel { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--r2); padding: 18px 20px; }
+  .panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+  .panel-title { font-family: var(--font-display); font-size: 13px; font-weight: 600; color: var(--text); letter-spacing: -0.01em; }
+  .panel-meta { font-size: 11px; color: var(--text3); }
+  .chart-legend { display: flex; gap: 16px; }
+  .legend-item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text2); }
+  .legend-dot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+  .lower-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+  .pipeline-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-top: 8px; }
+  .pipe-cell { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--r); padding: 10px 8px; text-align: center; transition: all 0.2s; }
+  .pipe-cell.has-stock { border-color: var(--blue); background: var(--blue-bg); }
+  .pipe-cell.arriving { border-color: var(--green); background: var(--green-bg); animation: arrive-flash 0.6s ease; }
+  @keyframes arrive-flash { 0%,100%{opacity:1} 50%{opacity:0.5} }
+  .pipe-day-label { font-size: 9px; color: var(--text3); letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 4px; }
+  .pipe-qty { font-family: var(--font-display); font-size: 18px; font-weight: 700; color: var(--text2); }
+  .pipe-cell.has-stock .pipe-qty { color: var(--blue); }
+  .pipe-cell.arriving .pipe-qty { color: var(--green); }
+  .agent-panel { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--r); padding: 12px 14px; margin-top: 10px; min-height: 64px; position: relative; }
+  .agent-label { display: inline-flex; align-items: center; gap: 6px; font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 500; margin-bottom: 7px; }
+  .agent-label.analyst { color: var(--blue); }
+  .agent-label.exec    { color: var(--green); }
+  .agent-label::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: currentColor; animation: pulse-dot 1.8s infinite; }
+  .agent-text { font-size: 11.5px; color: var(--text2); line-height: 1.7; font-family: var(--font-mono); }
+  .agent-text.thinking { color: var(--text3); font-style: italic; }
+  .json-output { font-family: var(--font-mono); font-size: 11px; color: var(--green); background: var(--bg); border: 1px solid rgba(74,170,110,0.2); border-radius: var(--r); padding: 8px 10px; margin-top: 6px; white-space: pre-wrap; word-break: break-all; }
+  .log-panel { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--r2); overflow: hidden; }
+  .log-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+  .log-scroll { height: 220px; overflow-y: auto; padding: 8px 0; scrollbar-width: thin; scrollbar-color: var(--border2) transparent; }
+  .log-scroll::-webkit-scrollbar { width: 4px; }
+  .log-scroll::-webkit-scrollbar-track { background: transparent; }
+  .log-scroll::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+  .log-row { display: grid; grid-template-columns: 52px 72px 60px 60px 60px 60px auto; align-items: center; padding: 5px 16px; border-bottom: 1px solid var(--border); font-size: 11px; font-family: var(--font-mono); transition: background 0.1s; animation: row-in 0.2s ease; }
+  @keyframes row-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+  .log-row:hover { background: var(--bg3); }
+  .log-row:last-child { border-bottom: none; }
+  .log-day { color: var(--accent); font-weight: 500; }
+  .log-demand { color: var(--text2); }
+  .log-sold { color: var(--green); }
+  .log-lost { color: var(--red); }
+  .log-order { color: var(--blue); }
+  .log-pnl-pos { color: var(--green); }
+  .log-pnl-neg { color: var(--red); }
+  .log-cash { color: var(--text2); }
+  .log-col-header { display: grid; grid-template-columns: 52px 72px 60px 60px 60px 60px auto; padding: 6px 16px; font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text3); border-bottom: 1px solid var(--border); }
+  .final-banner { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--r3); padding: 32px; text-align: center; display: none; animation: banner-in 0.5s cubic-bezier(0.34,1.56,0.64,1); position: relative; overflow: hidden; }
+  .final-banner.visible { display: block; }
+  .final-banner::before { content: ''; position: absolute; inset: 0; background: radial-gradient(circle at 50% 0%, rgba(232,200,74,0.07) 0%, transparent 60%); pointer-events: none; }
+  @keyframes banner-in { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: none; } }
+  .final-score { font-family: var(--font-display); font-size: 72px; font-weight: 800; letter-spacing: -0.04em; line-height: 1; margin-bottom: 4px; }
+  .final-label { font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--text3); margin-bottom: 20px; }
+  .final-stars { font-size: 24px; letter-spacing: 4px; margin-bottom: 16px; color: var(--accent); }
+  .final-detail { font-size: 12px; color: var(--text2); line-height: 1.8; font-family: var(--font-mono); }
+  .report-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 20px 0; }
+  .report-card { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--r); padding: 14px; text-align: left; }
+  .report-card-label { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text3); margin-bottom: 6px; }
+  .report-card-val { font-family: var(--font-display); font-size: 20px; font-weight: 700; }
+  .report-card-sub { font-size: 10px; color: var(--text3); margin-top: 3px; }
+  .signal-banner { background: var(--bg3); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: var(--r); padding: 10px 14px; font-size: 11.5px; color: var(--text2); display: flex; align-items: center; gap: 10px; font-family: var(--font-mono); }
+  .signal-icon { font-size: 14px; flex-shrink: 0; }
+  .signal-banner.warn { border-left-color: var(--orange); }
+  .signal-banner.danger { border-left-color: var(--red); }
+  .sparkline-wrap { height: 80px; position: relative; }
+  .thinking-dots::after { content: '...'; animation: dots 1s steps(4,end) infinite; }
+  @keyframes dots { 0%  { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } }
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+  .s-label { font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text3); font-weight: 500; }
+  .day-strip { display: flex; gap: 3px; flex-wrap: wrap; margin-top: 6px; }
+  .day-pip { width: 7px; height: 7px; border-radius: 1px; background: var(--border); transition: background 0.3s; }
+  .day-pip.done { background: var(--accent); }
+  .day-pip.done.low { background: var(--red); }
+  .day-pip.spike { background: var(--orange); }
+  .day-pip.active { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <header>
+    <div class="header-left">
+      <div class="logo">Opti<span>Chain</span></div>
+      <div class="header-tag">Meta OpenEnv · v1.0.0</div>
+    </div>
+    <div class="header-right">
+      <div class="status-dot idle" id="status-dot">idle</div>
+      <div class="header-score">Score <span id="header-score">—</span></div>
+    </div>
+  </header>
+
+  <main>
+    <aside class="sidebar">
+      <div>
+        <div class="sidebar-section-label">Tasks</div>
+        <div class="task-card active-green" data-task="task_01_easy" onclick="selectTask('task_01_easy', this)">
+          <div class="task-card-header"><div class="task-name">Stable Demand</div><div class="diff-badge diff-easy">Easy</div></div>
+          <div class="task-meta"><strong>$30,000</strong> starting cash<br><strong>10</strong> units/day constant</div>
+        </div>
+        <div class="task-card" data-task="task_02_medium" onclick="selectTask('task_02_medium', this)">
+          <div class="task-card-header"><div class="task-name">Holiday Spike</div><div class="diff-badge diff-medium">Medium</div></div>
+          <div class="task-meta"><strong>$50,000</strong> starting cash<br><strong>40</strong> units/day on days 10–17</div>
+        </div>
+        <div class="task-card" data-task="task_03_hard" onclick="selectTask('task_03_hard', this)">
+          <div class="task-card-header"><div class="task-name">Supply Crisis</div><div class="diff-badge diff-hard">Hard</div></div>
+          <div class="task-meta"><strong>$30,000</strong> starting cash<br><strong>10-day</strong> standard shipping delay</div>
+        </div>
+      </div>
+
+      <div>
+        <div class="sidebar-section-label">Controls</div>
+        <div class="ctrl-group">
+          <button class="btn btn-primary" id="btn-run" onclick="startSim()">
+            <svg class="ico" viewBox="0 0 16 16" fill="none"><path d="M4 3l9 5-9 5V3z" fill="currentColor"/></svg>
+            Run simulation
+          </button>
+          <button class="btn" id="btn-pause" onclick="pauseSim()" disabled>
+            <svg class="ico" viewBox="0 0 16 16" fill="none"><rect x="4" y="3" width="3" height="10" rx="1" fill="currentColor"/><rect x="9" y="3" width="3" height="10" rx="1" fill="currentColor"/></svg>
+            <span id="pause-label">Pause</span>
+          </button>
+          <button class="btn btn-danger" onclick="resetSim()">
+            <svg class="ico" viewBox="0 0 16 16" fill="none"><path d="M2 8a6 6 0 1 1 1 3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M2 12V8h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Reset
+          </button>
+        </div>
+        <div class="speed-row" style="margin-top:14px;">
+          <span class="speed-label">Speed</span>
+          <input type="range" id="speed-range" min="1" max="5" value="3" step="1" oninput="onSpeedChange(this.value)">
+          <span class="speed-val" id="speed-lbl">3×</span>
+        </div>
+      </div>
+
+      <div>
+        <div class="sidebar-section-label">Live stats</div>
+        <div class="stat-strip" id="sidebar-stats">
+          <div class="stat-item"><span class="stat-key">Cash</span><span class="stat-val accent" id="ss-cash">$30,000</span></div>
+          <div class="stat-item"><span class="stat-key">Stock</span><span class="stat-val" id="ss-stock">50</span></div>
+          <div class="stat-item"><span class="stat-key">Sold yesterday</span><span class="stat-val up" id="ss-sold">—</span></div>
+          <div class="stat-item"><span class="stat-key">Lost sales</span><span class="stat-val down" id="ss-lost">—</span></div>
+          <div class="stat-item"><span class="stat-key">Order placed</span><span class="stat-val" id="ss-order">—</span></div>
+          <div class="stat-item"><span class="stat-key">Total profit</span><span class="stat-val" id="ss-profit">$0</span></div>
+          <div class="stat-item"><span class="stat-key">Optimal baseline</span><span class="stat-val" id="ss-opt">$58,000</span></div>
+        </div>
+      </div>
+
+      <div style="margin-top:auto;">
+        <div class="sidebar-section-label">Environment</div>
+        <div class="stat-strip">
+          <div class="stat-item"><span class="stat-key">Product</span><span class="stat-val">SKU-LAPTOP</span></div>
+          <div class="stat-item"><span class="stat-key">Cost/unit</span><span class="stat-val">$800</span></div>
+          <div class="stat-item"><span class="stat-key">Margin/unit</span><span class="stat-val up">$200</span></div>
+          <div class="stat-item"><span class="stat-key">Holding cost</span><span class="stat-val warn">$2/unit/day</span></div>
+          <div class="stat-item"><span class="stat-key">Stockout penalty</span><span class="stat-val down">$100/unit</span></div>
+          <div class="stat-item"><span class="stat-key">Std. shipping</span><span class="stat-val" id="ss-shipping">3 days</span></div>
+        </div>
+      </div>
+    </aside>
+
+    <div class="content">
+      <div class="signal-banner" id="signal-banner">
+        <span class="signal-icon">📡</span>
+        <span id="signal-text">Market signal: Demand is stable at exactly 10 units per day.</span>
+      </div>
+
+      <div class="metrics-grid">
+        <div class="metric-card" id="mc-cash">
+          <div class="metric-label">Cash balance</div>
+          <div class="metric-val accent" id="mc-cash-val">$30,000</div>
+          <div class="metric-sub" id="mc-cash-sub">Starting capital</div>
+          <div class="progress-track"><div class="progress-fill" id="mc-cash-prog" style="width:100%"></div></div>
+        </div>
+        <div class="metric-card" id="mc-stock">
+          <div class="metric-label">On-hand stock</div>
+          <div class="metric-val green" id="mc-stock-val">50</div>
+          <div class="metric-sub" id="mc-stock-sub">SKU-LAPTOP units</div>
+          <div class="progress-track"><div class="progress-fill green" id="mc-stock-prog" style="width:100%"></div></div>
+        </div>
+        <div class="metric-card" id="mc-day">
+          <div class="metric-label">Day</div>
+          <div class="metric-val" id="mc-day-val">0 <span style="font-size:16px;color:var(--text3)">/30</span></div>
+          <div class="metric-sub">Progress</div>
+          <div class="progress-track"><div class="progress-fill" id="mc-day-prog" style="width:0%"></div></div>
+        </div>
+        <div class="metric-card" id="mc-score">
+          <div class="metric-label">Score</div>
+          <div class="metric-val" id="mc-score-val">—</div>
+          <div class="metric-sub">vs. optimal baseline</div>
+          <div class="progress-track"><div class="progress-fill" id="mc-score-prog" style="width:0%"></div></div>
+        </div>
+        <div class="metric-card" id="mc-profit">
+          <div class="metric-label">Cumulative profit</div>
+          <div class="metric-val" id="mc-profit-val">$0</div>
+          <div class="metric-sub" id="mc-profit-sub">Net of costs & penalties</div>
+          <div class="progress-track"><div class="progress-fill green" id="mc-profit-prog" style="width:0%"></div></div>
+        </div>
+      </div>
+
+      <div>
+        <div class="s-label" style="margin-bottom:6px;">30-day timeline</div>
+        <div class="day-strip" id="day-strip"></div>
+      </div>
+
+      <div class="charts-row">
+        <div class="chart-panel">
+          <div class="panel-header">
+            <div class="panel-title">Daily P&L + Cash Flow</div>
+            <div class="chart-legend">
+              <div class="legend-item"><div class="legend-dot" style="background:#4aaa6e"></div>Profit day</div>
+              <div class="legend-item"><div class="legend-dot" style="background:#d95f5f"></div>Loss day</div>
+              <div class="legend-item"><div class="legend-dot" style="background:#5b9bd5"></div>Cash ($)</div>
+            </div>
+          </div>
+          <div style="position:relative;height:180px;"><canvas id="main-chart"></canvas></div>
+        </div>
+        <div class="chart-panel">
+          <div class="panel-header">
+            <div class="panel-title">Inventory level</div>
+            <div class="panel-meta" id="inv-meta">units</div>
+          </div>
+          <div style="position:relative;height:180px;"><canvas id="inv-chart"></canvas></div>
+        </div>
+      </div>
+
+      <div class="lower-row">
+        <div class="chart-panel">
+          <div class="panel-header">
+            <div class="panel-title">Shipment pipeline</div>
+            <div class="panel-meta">days to arrival</div>
+          </div>
+          <div class="pipeline-grid">
+            <div class="pipe-cell" id="pc-1"><div class="pipe-day-label">+1 day</div><div class="pipe-qty" id="pq-1">0</div></div>
+            <div class="pipe-cell" id="pc-2"><div class="pipe-day-label">+2 days</div><div class="pipe-qty" id="pq-2">0</div></div>
+            <div class="pipe-cell" id="pc-3"><div class="pipe-day-label">+3 days</div><div class="pipe-qty" id="pq-3">0</div></div>
+            <div class="pipe-cell" id="pc-4"><div class="pipe-day-label">+4 days</div><div class="pipe-qty" id="pq-4">0</div></div>
+            <div class="pipe-cell" id="pc-5p"><div class="pipe-day-label">+5+ days</div><div class="pipe-qty" id="pq-5p">0</div></div>
+          </div>
+          <div style="margin-top:14px;">
+            <div class="s-label" style="margin-bottom:8px;">Yesterday</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
+              <div style="text-align:center;">
+                <div class="s-label" style="margin-bottom:4px;">Sold</div>
+                <div style="font-family:var(--font-display);font-size:22px;font-weight:700;color:var(--green)" id="yday-sold">—</div>
+              </div>
+              <div style="text-align:center;">
+                <div class="s-label" style="margin-bottom:4px;">Lost</div>
+                <div style="font-family:var(--font-display);font-size:22px;font-weight:700;color:var(--red)" id="yday-lost">—</div>
+              </div>
+              <div style="text-align:center;">
+                <div class="s-label" style="margin-bottom:4px;">Ordered</div>
+                <div style="font-family:var(--font-display);font-size:22px;font-weight:700;color:var(--blue)" id="yday-order">—</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="chart-panel">
+          <div class="panel-header">
+            <div class="panel-title">Analyst agent</div>
+            <div class="panel-meta">Planner</div>
+          </div>
+          <div class="agent-panel">
+            <div class="agent-label analyst">Analyst · reasoning</div>
+            <div class="agent-text thinking" id="analyst-text">Waiting for simulation to start...</div>
+          </div>
+          <div style="margin-top:10px;">
+            <div class="s-label" style="margin-bottom:6px;">Strategy constraints</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px;">
+              <div style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);padding:8px 10px;">
+                <div class="s-label" style="margin-bottom:3px;">Min cash buffer</div>
+                <div style="font-size:13px;color:var(--accent);font-family:var(--font-mono);">$8,000</div>
+              </div>
+              <div style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);padding:8px 10px;">
+                <div class="s-label" style="margin-bottom:3px;">Reorder trigger</div>
+                <div style="font-size:13px;color:var(--text2);font-family:var(--font-mono);" id="reorder-trigger">stock &lt; 20</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="chart-panel">
+          <div class="panel-header">
+            <div class="panel-title">Executor agent</div>
+            <div class="panel-meta">JSON formatter</div>
+          </div>
+          <div class="agent-panel">
+            <div class="agent-label exec">Executor · output</div>
+            <div class="agent-text thinking" id="exec-text">Will format Analyst decision into SupplyChainAction schema.</div>
+          </div>
+          <div id="json-output-wrap" style="display:none;">
+            <div class="json-output" id="json-output"></div>
+          </div>
+          <div style="margin-top:10px;">
+            <div class="s-label" style="margin-bottom:6px;">Schema</div>
+            <div class="json-output" style="color:var(--text3);margin-top:0;">{"orders":[{"product_id":"SKU-LAPTOP","quantity":N,"expedite_shipping":bool}]}</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="log-panel">
+        <div class="log-header">
+          <div class="panel-title">Event log</div>
+          <div class="panel-meta" id="log-count">— entries</div>
+        </div>
+        <div class="log-col-header">
+          <span>Day</span><span>Demand</span><span>Sold</span><span>Lost</span><span>Order</span><span>P&L</span><span>Cash EOD</span>
+        </div>
+        <div class="log-scroll" id="log-scroll">
+          <div style="padding:16px;font-size:12px;color:var(--text3);font-family:var(--font-mono);">Select a task and click Run simulation to begin.</div>
+        </div>
+      </div>
+
+      <div class="final-banner" id="final-banner">
+        <div class="final-label">Simulation complete</div>
+        <div class="final-score" id="final-score">—</div>
+        <div class="final-label">/ 1.0</div>
+        <div class="final-stars" id="final-stars"></div>
+        <div class="report-grid">
+          <div class="report-card">
+            <div class="report-card-label">Total profit</div>
+            <div class="report-card-val" id="fr-profit">—</div>
+            <div class="report-card-sub">Net of all costs</div>
+          </div>
+          <div class="report-card">
+            <div class="report-card-label">Optimal baseline</div>
+            <div class="report-card-val" id="fr-opt">—</div>
+            <div class="report-card-sub">Max achievable</div>
+          </div>
+          <div class="report-card">
+            <div class="report-card-label">Units lost</div>
+            <div class="report-card-val" id="fr-lost">—</div>
+            <div class="report-card-sub">Unfilled demand</div>
+          </div>
+        </div>
+        <div class="final-detail" id="final-detail"></div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+// ─── CONSTANTS ───────────────────────────────────────────────
+const MAX_DAYS = 30;
+const TASKS = {
+  task_01_easy: {
+    name: 'Stable Demand', cash: 30000, stock: 50,
+    signal: 'Market signal: Demand is stable at exactly 10 units per day.', signalClass: '',
+    optProfit: 58000, shipping: 3, triggerLabel: 'stock < 20', opt: '$58,000'
+  },
+  task_02_medium: {
+    name: 'Holiday Spike', cash: 50000, stock: 20,
+    signal: 'WARNING: Black Friday begins day 10. Demand spikes from 10 → 40 units/day through day 17.', signalClass: 'warn',
+    optProfit: 110000, shipping: 3, triggerLabel: 'pre-spike stock', opt: '$110,000'
+  },
+  task_03_hard: {
+    name: 'Supply Crisis', cash: 30000, stock: 30,
+    signal: 'WARNING: Global shipping crisis. Standard 3-day shipping now delayed to 10 days. Expedited (1-day) is double cost but guaranteed.', signalClass: 'danger',
+    optProfit: 45000, shipping: 10, triggerLabel: 'expedite always', opt: '$45,000'
+  }
+};
+
+// ─── STATE ───────────────────────────────────────────────────
+const API = 'http://localhost:8000'; // Update for HuggingFace deployment
+let S = {};
+let paused = false;
+let running = false;
+let simLoopActive = false; // Prevents overlapping API calls
+let currentTask = 'task_01_easy';
+let logCount = 0;
+let totalLost = 0;
+let mainChart = null, invChart = null;
+
+// ─── INIT ────────────────────────────────────────────────────
+function initState(taskId) {
+  const t = TASKS[taskId];
+  S = {
+    taskId, day: 1, cash: t.cash, stock: t.stock, pipeline: {},
+    totalProfit: 0, salesYday: 0, lostYday: 0, lastOrder: 0,
+    history: { days:[], pnl:[], cash:[], stock:[] }
+  };
+  logCount = 0; totalLost = 0;
+}
+
+// ─── SMART SIMULATION LOOP ───────────────────────────────────
+async function startSim() {
+  if (running) return;
+  
+  initState(currentTask);
+  clearLog();
+  setStatus('running');
+  document.getElementById('btn-run').disabled = true;
+  document.getElementById('btn-pause').disabled = false;
+  document.getElementById('final-banner').className = 'final-banner';
+
+  try {
+    // 1. Reset Environment on the Backend
+    const resetRes = await fetch(`${API}/reset`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ task_id: currentTask })
+    });
+    const { observation } = await resetRes.json();
+    applyObservation(observation);
+  } catch (e) {
+    console.error(e);
+    alert("Failed to connect to backend. Make sure main.py is running!");
+    setStatus('idle');
+    document.getElementById('btn-run').disabled = false;
+    document.getElementById('btn-pause').disabled = true;
+    return;
+  }
+
+  running = true; 
+  paused = false;
+  runLoop(); // Start the smart loop
+}
+
+async function runLoop() {
+  if (simLoopActive) return;
+  simLoopActive = true;
+
+  while (running && !paused) {
+    try {
+      // 1. Call the AI Bridge Endpoint
+      const res = await fetch(`${API}/demo/step_sim`, { method: 'POST' });
+      const data = await res.json();
+      const { observation, reward, done, action_taken, reasoning } = data;
+
+      // CRITICAL FIX: If user clicked 'Reset' while the LLM was thinking, abort immediately!
+      if (!running) break; 
+
+      // 2. Process Backend State
+      applyObservation(observation);
+      updateAgents(reasoning, JSON.stringify(action_taken, null, 2));
+
+      // 3. Track History for Charts
+      S.history.days.push('Day ' + (observation.current_day - 1));
+      S.history.pnl.push(reward);
+      S.history.cash.push(observation.cash_balance);
+      S.history.stock.push(observation.warehouse_status[0].current_stock);
+      updateCharts();
+
+      // 4. Extract order quantity for the Log
+      let orderQty = 0;
+      if (action_taken && action_taken.orders && action_taken.orders.length > 0) {
+        orderQty = action_taken.orders[0].quantity;
+      }
+
+      appendLog(
+        observation.current_day - 1,
+        observation.warehouse_status[0].sales_yesterday + observation.warehouse_status[0].lost_sales_yesterday,
+        observation.warehouse_status[0].sales_yesterday,
+        observation.warehouse_status[0].lost_sales_yesterday,
+        orderQty,
+        reward,
+        observation.cash_balance
+      );
+      updateDayStrip(observation.current_day - 1);
+
+      // Stop exactly at day 30 (Hard Stop)
+      if (done || observation.current_day > MAX_DAYS) {
+        endSim();
+        break;
+      }
+
+      // Wait for the UI speed setting BEFORE asking the LLM for the next day
+      await new Promise(resolve => setTimeout(resolve, getInterval()));
+
+    } catch(e) {
+      console.error(e);
+      pauseSim();
+      alert("Connection Error. Check your terminal running main.py for details.");
+      break;
+    }
+  }
+  simLoopActive = false;
+}
+
+function applyObservation(obs) {
+  const wh = obs.warehouse_status[0];
+  S.day      = obs.current_day;
+  S.cash     = obs.cash_balance;
+  S.stock    = wh.current_stock;
+  S.salesYday = wh.sales_yesterday;
+  S.lostYday  = wh.lost_sales_yesterday;
+  S.pipeline  = wh.incoming_shipments;
+
+  S.totalProfit = S.cash - TASKS[currentTask].cash;
+  totalLost += S.lostYday;
+
+  const score = S.totalProfit > 0 ? Math.min(1, S.totalProfit / TASKS[currentTask].optProfit) : 0;
+  updateMetrics(score, S.salesYday + S.lostYday, S.pipeline["1"] || 0);
+  updatePipeline();
+}
+
+async function endSim() {
+  running = false;
+  setStatus('idle');
+  document.getElementById('btn-run').disabled = false;
+  document.getElementById('btn-pause').disabled = true;
+  document.getElementById('pause-label').textContent = 'Pause';
+
+  let finalScore = 0;
+  try {
+    const res = await fetch(`${API}/grader`);
+    const data = await res.json();
+    finalScore = data.score;
+  } catch(e) {
+    finalScore = S.totalProfit > 0 ? Math.min(1, S.totalProfit / TASKS[currentTask].optProfit) : 0;
+  }
+
+  const t = TASKS[S.taskId];
+  const stars = Math.round(finalScore * 5);
+  const scoreEl = document.getElementById('final-score');
+  
+  scoreEl.textContent = finalScore.toFixed(2);
+  scoreEl.style.color = finalScore > 0.7 ? 'var(--green)' : finalScore > 0.4 ? 'var(--orange)' : 'var(--red)';
+  document.getElementById('final-stars').textContent = '★'.repeat(stars) + '☆'.repeat(5-stars);
+  document.getElementById('fr-profit').textContent = '$' + Math.round(S.totalProfit).toLocaleString();
+  document.getElementById('fr-opt').textContent = t.opt;
+  document.getElementById('fr-lost').textContent = totalLost + ' units';
+  document.getElementById('final-detail').textContent = `Task: ${t.name}  ·  Days: 30  ·  Official Hackathon Score: ${(finalScore*100).toFixed(1)}%`;
+  document.getElementById('final-banner').className = 'final-banner visible';
+}
+
+// ─── UI UPDATES ──────────────────────────────────────────────
+function updateMetrics(score, demand, arriving) {
+  const t = TASKS[S.taskId];
+  const cashPct = Math.min(100, (S.cash / (t.cash * 2)) * 100);
+  const stockPct = Math.min(100, (S.stock / 100) * 100);
+  const scorePct = score * 100;
+
+  const cashEl = document.getElementById('mc-cash-val');
+  cashEl.textContent = '$' + Math.round(S.cash).toLocaleString();
+  cashEl.className = 'metric-val ' + (S.cash < 10000 ? 'red' : S.cash > 40000 ? 'green' : 'accent');
+  document.getElementById('mc-cash-prog').style.width = cashPct + '%';
+  document.getElementById('mc-cash-sub').textContent = S.cash < 8000 ? '⚠ Low cash — bankruptcy risk' : `Demand: ${demand}/day`;
+
+  const stEl = document.getElementById('mc-stock-val');
+  stEl.textContent = S.stock;
+  stEl.className = 'metric-val ' + (S.stock < 10 ? 'red' : S.stock > 40 ? 'green' : 'amber');
+  document.getElementById('mc-stock-prog').style.width = stockPct + '%';
+  document.getElementById('mc-stock-sub').textContent = arriving > 0 ? `+${arriving} arrived today` : 'No arrivals today';
+
+  document.getElementById('mc-day-val').innerHTML = `${S.day-1} <span style="font-size:16px;color:var(--text3)">/30</span>`;
+  document.getElementById('mc-day-prog').style.width = ((S.day-1)/30*100) + '%';
+
+  const sEl = document.getElementById('mc-score-val');
+  sEl.textContent = score.toFixed(2);
+  sEl.className = 'metric-val ' + (score > 0.7 ? 'green' : score > 0.4 ? 'amber' : 'red');
+  const sProg = document.getElementById('mc-score-prog');
+  sProg.style.width = scorePct + '%';
+  sProg.className = 'progress-fill ' + (score > 0.7 ? 'green' : score > 0.4 ? '' : 'red');
+  document.getElementById('header-score').textContent = score.toFixed(2);
+
+  const profEl = document.getElementById('mc-profit-val');
+  profEl.textContent = '$' + Math.round(S.totalProfit).toLocaleString();
+  profEl.className = 'metric-val ' + (S.totalProfit > 0 ? 'green' : 'red');
+  document.getElementById('mc-profit-prog').style.width = Math.max(0, Math.min(100, (S.totalProfit / t.optProfit) * 100)) + '%';
+
+  document.getElementById('ss-cash').textContent = '$' + Math.round(S.cash).toLocaleString();
+  document.getElementById('ss-stock').textContent = S.stock;
+  document.getElementById('ss-sold').textContent = S.salesYday;
+  document.getElementById('ss-lost').textContent = S.lostYday;
+  document.getElementById('ss-profit').textContent = '$' + Math.round(S.totalProfit).toLocaleString();
+
+  document.getElementById('yday-sold').textContent = S.salesYday;
+  document.getElementById('yday-lost').textContent = S.lostYday;
+}
+
+function updatePipeline() {
+  for (let i = 1; i <= 4; i++) {
+    const qty = S.pipeline[i] || 0;
+    const el = document.getElementById('pq-' + i);
+    const cell = document.getElementById('pc-' + i);
+    el.textContent = qty;
+    cell.className = 'pipe-cell' + (qty > 0 ? (i === 1 ? ' arriving' : ' has-stock') : '');
+  }
+  let sum5p = 0;
+  for (const [k,v] of Object.entries(S.pipeline)) { if (parseInt(k) >= 5) sum5p += v; }
+  document.getElementById('pq-5p').textContent = sum5p;
+  document.getElementById('pc-5p').className = 'pipe-cell' + (sum5p > 0 ? ' has-stock' : '');
+}
+
+function updateAgents(reasoning, execJson) {
+  const aEl = document.getElementById('analyst-text');
+  aEl.textContent = reasoning;
+  aEl.className = 'agent-text';
+
+  const eEl = document.getElementById('exec-text');
+  eEl.textContent = `Day ${S.day-1} action dispatched to Engine.`;
+  eEl.className = 'agent-text';
+
+  const jsonWrap = document.getElementById('json-output-wrap');
+  const jsonEl = document.getElementById('json-output');
+  jsonEl.textContent = execJson;
+  jsonWrap.style.display = 'block';
+  
+  try {
+     const parsed = JSON.parse(execJson);
+     const qty = parsed.orders && parsed.orders.length > 0 ? parsed.orders[0].quantity : 0;
+     document.getElementById('ss-order').textContent = qty;
+     document.getElementById('yday-order').textContent = qty;
+  } catch(e) {}
+}
+
+function updateCharts() {
+  const days = S.history.days;
+  const pnl = S.history.pnl;
+  const cash = S.history.cash;
+  const stock = S.history.stock;
+  const barColors = pnl.map(v => v >= 0 ? 'rgba(74,170,110,0.75)' : 'rgba(217,95,95,0.75)');
+  const barBorder = pnl.map(v => v >= 0 ? '#4aaa6e' : '#d95f5f');
+
+  if (!mainChart) {
+    mainChart = new Chart(document.getElementById('main-chart'), {
+      data: {
+        labels: days,
+        datasets: [
+          { type: 'bar', label: 'Daily P&L', data: pnl, backgroundColor: barColors, borderColor: barBorder, borderWidth: 1, yAxisID: 'y1', order: 2 },
+          { type: 'line', label: 'Cash ($)', data: cash, borderColor: '#5b9bd5', backgroundColor: 'rgba(91,155,213,0.06)', fill: true, tension: 0.4, pointRadius: 0, borderWidth: 1.5, yAxisID: 'y2', order: 1 }
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#1a1e25', borderColor: 'rgba(255,255,255,0.1)', borderWidth: 1, titleColor: '#e8c84a', bodyColor: '#8a8880',
+            titleFont: { family: "'DM Mono', monospace", size: 11 }, bodyFont: { family: "'DM Mono', monospace", size: 11 },
+            callbacks: { label: ctx => { const v = ctx.raw; return ctx.dataset.label === 'Cash ($)' ? ` Cash: $${v.toLocaleString()}` : ` P&L: $${v.toLocaleString()}`; } }
+          }
+        },
+        scales: {
+          x: { ticks: { color: '#4a4845', font: { size: 10, family: "'DM Mono',monospace" }, maxRotation: 0, autoSkip: true }, grid: { color: 'rgba(255,255,255,0.04)' }, border: { color: 'rgba(255,255,255,0.07)' } },
+          y1: { type: 'linear', position: 'left', ticks: { color: '#4a4845', font: { size: 10, family: "'DM Mono',monospace" }, callback: v => '$' + (v/1000).toFixed(0) + 'k' }, grid: { color: 'rgba(255,255,255,0.04)' }, border: { color: 'rgba(255,255,255,0.07)' } },
+          y2: { type: 'linear', position: 'right', ticks: { color: '#5b9bd5', font: { size: 10, family: "'DM Mono',monospace" }, callback: v => '$' + (v/1000).toFixed(0) + 'k' }, grid: { drawOnChartArea: false }, border: { color: 'rgba(255,255,255,0.07)' } }
+        }
+      }
+    });
+  } else {
+    mainChart.data.labels = days; mainChart.data.datasets[0].data = pnl; mainChart.data.datasets[0].backgroundColor = barColors; mainChart.data.datasets[0].borderColor = barBorder; mainChart.data.datasets[1].data = cash; mainChart.update('none');
+  }
+
+  if (!invChart) {
+    invChart = new Chart(document.getElementById('inv-chart'), {
+      type: 'line',
+      data: { labels: days, datasets: [{ label: 'Stock', data: stock, borderColor: '#4aaa6e', backgroundColor: 'rgba(74,170,110,0.08)', fill: true, tension: 0.3, pointRadius: 0, borderWidth: 2 }] },
+      options: {
+        responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { backgroundColor: '#1a1e25', borderColor: 'rgba(255,255,255,0.1)', borderWidth: 1, titleColor: '#e8c84a', bodyColor: '#8a8880', titleFont: { family: "'DM Mono', monospace", size: 11 }, bodyFont: { family: "'DM Mono', monospace", size: 11 } } },
+        scales: {
+          x: { ticks: { color: '#4a4845', font: { size: 10, family: "'DM Mono',monospace" }, maxRotation: 0, autoSkip: true }, grid: { color: 'rgba(255,255,255,0.04)' }, border: { color: 'rgba(255,255,255,0.07)' } },
+          y: { ticks: { color: '#4a4845', font: { size: 10, family: "'DM Mono',monospace" } }, grid: { color: 'rgba(255,255,255,0.04)' }, border: { color: 'rgba(255,255,255,0.07)' }, min: 0 }
+        }
+      }
+    });
+  } else {
+    invChart.data.labels = days; invChart.data.datasets[0].data = stock; invChart.update('none');
+  }
+}
+
+function appendLog(day, demand, sold, lost, ordered, pnl, cash) {
+  logCount++;
+  document.getElementById('log-count').textContent = logCount + ' entries';
+  const scroll = document.getElementById('log-scroll');
+  const row = document.createElement('div');
+  row.className = 'log-row';
+  const pnlCls = pnl >= 0 ? 'log-pnl-pos' : 'log-pnl-neg';
+  row.innerHTML = `
+    <span class="log-day">Day ${day}</span>
+    <span class="log-demand">${demand}/day</span>
+    <span class="log-sold">+${sold}</span>
+    <span class="log-lost">${lost > 0 ? '-'+lost : '0'}</span>
+    <span class="log-order">${ordered > 0 ? ordered+'u' : '—'}</span>
+    <span class="${pnlCls}">${pnl >= 0 ? '+' : ''}$${pnl.toLocaleString()}</span>
+    <span class="log-cash">$${Math.round(cash).toLocaleString()}</span>
+  `;
+  scroll.insertBefore(row, scroll.firstChild);
+}
+
+function updateDayStrip(day) {
+  const pips = document.querySelectorAll('.day-pip');
+  pips.forEach((pip, i) => {
+    const d = i + 1;
+    if (d < day) {
+      const isSpike = S.taskId === 'task_02_medium' && d >= 10 && d <= 17;
+      const isLow = S.history.cash[d-1] < 10000;
+      pip.className = 'day-pip done' + (isSpike ? ' spike' : '') + (isLow ? ' low' : '');
+    } else if (d === day) { pip.className = 'day-pip active'; } 
+    else { pip.className = 'day-pip'; }
+  });
+}
+
+function getInterval() { const v = parseInt(document.getElementById('speed-range').value); return [700, 400, 220, 100, 40][v-1]; }
+
+// ─── CONTROLS ────────────────────────────────────────────────
+function pauseSim() {
+  if (!running) return;
+  paused = !paused;
+  document.getElementById('pause-label').textContent = paused ? 'Resume' : 'Pause';
+  setStatus(paused ? 'idle' : 'running');
+  if (!paused) runLoop(); 
+}
+
+function onSpeedChange(v) {
+  document.getElementById('speed-lbl').textContent = v + '×';
+  // The while loop automatically picks up the new speed on the next day!
+}
+
+function selectTask(taskId, el) {
+  if (running) return;
+  currentTask = taskId;
+  document.querySelectorAll('.task-card').forEach(c => c.classList.remove('active','active-green','active-red'));
+  const colorMap = { task_01_easy:'active-green', task_02_medium:'active', task_03_hard:'active-red' };
+  el.classList.add(colorMap[taskId]);
+  const t = TASKS[taskId];
+  const sig = document.getElementById('signal-banner');
+  sig.className = 'signal-banner ' + t.signalClass;
+  document.getElementById('signal-text').textContent = t.signal;
+  document.getElementById('ss-opt').textContent = t.opt;
+  document.getElementById('reorder-trigger').textContent = t.triggerLabel;
+  document.getElementById('ss-shipping').textContent = taskId === 'task_03_hard' ? '10 days (crisis)' : '3 days';
+  resetSim();
+}
+
+function setStatus(s) { const el = document.getElementById('status-dot'); el.className = 'status-dot ' + (s === 'idle' ? 'idle' : s === 'running' ? 'running' : ''); el.textContent = s; }
+function buildDayStrip() { const strip = document.getElementById('day-strip'); strip.innerHTML = ''; for (let i = 1; i <= MAX_DAYS; i++) { const pip = document.createElement('div'); pip.className = 'day-pip'; pip.title = 'Day ' + i; strip.appendChild(pip); } }
+function clearLog() { logCount = 0; document.getElementById('log-count').textContent = '— entries'; document.getElementById('log-scroll').innerHTML = '<div style="padding:16px;font-size:12px;color:var(--text3);font-family:var(--font-mono);">Select a task and click Run simulation to begin.</div>'; }
+
+function resetSim() {
+  running = false; 
+  paused = false; 
+  simLoopActive = false;
+  setStatus('idle');
+  
+  if (mainChart) { mainChart.destroy(); mainChart = null; }
+  if (invChart) { invChart.destroy(); invChart = null; }
+  initState(currentTask);
+  
+  document.getElementById('btn-run').disabled = false; 
+  document.getElementById('btn-pause').disabled = true; 
+  document.getElementById('pause-label').textContent = 'Pause';
+  document.getElementById('final-banner').className = 'final-banner'; 
+  document.getElementById('json-output-wrap').style.display = 'none';
+  document.getElementById('analyst-text').textContent = 'Waiting for simulation to start...'; document.getElementById('analyst-text').className = 'agent-text thinking';
+  document.getElementById('exec-text').textContent = 'Will format Analyst decision into SupplyChainAction schema.'; document.getElementById('exec-text').className = 'agent-text thinking';
+  
+  const t = TASKS[currentTask];
+  document.getElementById('mc-cash-val').textContent = '$' + t.cash.toLocaleString(); document.getElementById('mc-cash-val').className = 'metric-val accent';
+  document.getElementById('mc-stock-val').textContent = t.stock; document.getElementById('mc-stock-val').className = 'metric-val green';
+  document.getElementById('mc-day-val').innerHTML = '0 <span style="font-size:16px;color:var(--text3)">/30</span>'; document.getElementById('mc-day-prog').style.width = '0%';
+  document.getElementById('mc-score-val').textContent = '—'; document.getElementById('mc-score-prog').style.width = '0%';
+  document.getElementById('mc-profit-val').textContent = '$0'; document.getElementById('mc-profit-val').className = 'metric-val'; document.getElementById('mc-profit-prog').style.width = '0%';
+  document.getElementById('header-score').textContent = '—'; document.getElementById('ss-cash').textContent = '$' + t.cash.toLocaleString();
+  document.getElementById('ss-stock').textContent = t.stock; document.getElementById('ss-sold').textContent = '—'; document.getElementById('ss-lost').textContent = '—';
+  document.getElementById('ss-order').textContent = '—'; document.getElementById('ss-profit').textContent = '$0';
+  document.getElementById('yday-sold').textContent = '—'; document.getElementById('yday-lost').textContent = '—'; document.getElementById('yday-order').textContent = '—';
+  
+  for (let i=1;i<=4;i++) { document.getElementById('pq-'+i).textContent='0'; document.getElementById('pc-'+i).className='pipe-cell'; }
+  document.getElementById('pq-5p').textContent='0'; document.getElementById('pc-5p').className='pipe-cell';
+  
+  buildDayStrip(); 
+  clearLog();
+}
+
+buildDayStrip();
+initState('task_01_easy');
+</script>
+</body>
+</html>
