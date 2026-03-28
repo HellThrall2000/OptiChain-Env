@@ -3,7 +3,7 @@
 
 [![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=for-the-badge&logo=fastapi)](https://fastapi.tiangolo.com/)
 [![OpenAI Compatible](https://img.shields.io/badge/Groq%20/%20Ollama-AI%20Agents-blue?style=for-the-badge)](https://groq.com/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.style=for-the-badge)](https://opensource.org/licenses/MIT)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.style=for-the-badge)](https://opensource.org/licenses/MIT)]
 
 **OptiChain-Env** is a high-fidelity inventory management environment built strictly to the **Meta OpenEnv** specification. It challenges AI agents to act as Supply Chain Managers, navigating varying demand signals, shipping disruptions, and strict liquidity constraints to maximize profit.
 
