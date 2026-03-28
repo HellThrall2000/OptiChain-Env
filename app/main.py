@@ -10,7 +10,7 @@ from env.schemas import SupplyChainAction
 
 # We import the AI logic from your baseline script
 # (We will update baseline.py to export this function next)
-from baseline import get_agent_action
+from inference import get_agent_action
 
 # Initialize the FastAPI application
 app = FastAPI(
