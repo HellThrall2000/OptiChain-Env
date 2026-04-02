@@ -91,13 +91,14 @@ class SupplyChainEnv:
         )
 
     def step(self, action: SupplyChainAction) -> Tuple[SupplyChainObservation, float, bool, Dict[str, Any]]:
+        import random
         reward = 0.0
-        
+
         # 1. Process Arrivals
         for pid in self.catalog.keys():
             arriving_today = self.shipment_pipeline[pid].get(1, 0)
             self.inventory[pid] += arriving_today
-            
+
             new_pipeline = {}
             for day, qty in self.shipment_pipeline[pid].items():
                 if day > 1:
@@ -111,64 +112,75 @@ class SupplyChainEnv:
                 continue
 
             cost = order.quantity * self.catalog[pid]["order_cost"]
-            
+
             # UPDATED SHIPPING LOGIC: 4 days in crisis, 2 days standard
             if self.current_task_id == "task_03_hard" and not order.expedite_shipping:
-                delivery_days = 4 
+                delivery_days = 4
             else:
                 delivery_days = 1 if order.expedite_shipping else 2
-                
+
             # Expedite shipping now costs $100 more per unit (Total $900 per unit)
             if order.expedite_shipping:
-                cost += (order.quantity * 100) 
-                
+                cost += (order.quantity * 100)
+
             if self.cash_balance >= cost:
                 self.cash_balance -= cost
                 reward -= cost
                 current_queued = self.shipment_pipeline[pid].get(delivery_days, 0)
                 self.shipment_pipeline[pid][delivery_days] = current_queued + order.quantity
 
-        # 3. Simulate Daily Demand based on Task
-        demand_qty = 10
-        if self.current_task_id == "task_02_medium" and 10 <= self.current_day <= 17:
-            demand_qty = 40 # Black Friday Spike
-            
-        actual_demand = {"SKU-LAPTOP": demand_qty} 
+        # 3. Simulate Daily Demand based on Task (now variable)
+        if self.current_task_id == "task_01_easy":
+            # Stable demand, but with small random noise
+            demand_qty = random.randint(8, 12)
+        elif self.current_task_id == "task_02_medium":
+            if 10 <= self.current_day <= 17:
+                # Black Friday spike with some randomness
+                demand_qty = random.randint(35, 45)
+            else:
+                demand_qty = random.randint(8, 12)
+        elif self.current_task_id == "task_03_hard":
+            # Hard: more volatile demand
+            demand_qty = random.randint(5, 20)
+        else:
+            demand_qty = 10
+
+        actual_demand = {"SKU-LAPTOP": demand_qty}
 
         # 4. Fulfill Demand & Calculate Cash Flow (THE ACCOUNTING FIX)
         for pid, demand in actual_demand.items():
             stock = self.inventory[pid]
             sold = min(stock, demand)
             missed = demand - sold
-            
+
             self.inventory[pid] -= sold
             self.history["sales_yesterday"][pid] = sold
             self.history["lost_sales_yesterday"][pid] = missed
-            
+
             margin = self.catalog[pid]["margin"]
             order_cost = self.catalog[pid]["order_cost"]
-            
+
             # Revenue is what the customer actually pays you (Cost + Margin = 1200)
-            revenue = sold * (order_cost + margin) 
-            
+            revenue = sold * (order_cost + margin)
+
             # Profit for the scoreboard is just the margin (400)
-            profit = sold * margin 
-            
+            profit = sold * margin
+
             holding_cost = self.inventory[pid] * self.catalog[pid]["holding_cost"]
             penalty = missed * self.catalog[pid]["penalty"]
-            
+
             # SCOREKEEPER FIX: The RL Reward needs the full revenue to offset the order cost!
             daily_reward = revenue - holding_cost - penalty
-            
-            self.cash_balance += revenue  
-            reward += daily_reward        
+
+            self.cash_balance += revenue
+            reward += daily_reward
 
         self.total_profit += reward
 
         # 5. Advance Time
         self.current_day += 1
         done = self.current_day > self.max_days
-        
+
         info = {"current_profit": self.total_profit}
         return self.state(), reward, done, info
 
