@@ -103,7 +103,7 @@ def step_env(action: SupplyChainAction):
         observation=obs,
         reward=obs.reward,
         done=obs.done,
-        info={"current_profit": env.total_profit},
+        info={"current_reward": env.total_reward, "grader_score": env.get_grader_score()},
     )
 
 

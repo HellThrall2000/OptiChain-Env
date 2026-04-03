@@ -1,10 +1,6 @@
 import random
 import uuid
-
-try:
-    from openenv.core.env_server import Environment
-except ImportError:
-    from core.env_server import Environment
+from openenv.core.env_server import Environment
 
 from env.schemas import (
     SupplyChainAction,
@@ -36,8 +32,7 @@ class SupplyChainEnv(Environment):
         self.history: dict = {"sales_yesterday": {}, "lost_sales_yesterday": {}}
         self.catalog: dict = {}
         self.market_signal: str = ""
-        self.total_profit: float = 0.0
-        self.optimal_profit_baseline: float = 0.0
+        self.total_reward: float = 0.0  # cumulative sum of per-step newsvendor rewards
         # OpenEnv State container (tracks episode metadata)
         self._state = SupplyChainState(
             episode_id=str(uuid.uuid4()),
@@ -48,7 +43,7 @@ class SupplyChainEnv(Environment):
         """Reset the environment and load a specific task. Returns initial observation."""
         self.current_task_id = task_id
         self.current_day = 1
-        self.total_profit = 0.0
+        self.total_reward = 0.0
 
         # Reset the OpenEnv State container
         self._state = SupplyChainState(
@@ -69,7 +64,6 @@ class SupplyChainEnv(Environment):
             self.shipment_pipeline = {"SKU-LAPTOP": {1: 0, 2: 0, 3: 0, 4: 0}}
             self.history = {"sales_yesterday": {"SKU-LAPTOP": 0}, "lost_sales_yesterday": {"SKU-LAPTOP": 0}}
             self.market_signal = "Demand is stable at exactly 10 units per day."
-            self.optimal_profit_baseline = 118000.0
 
         # ==========================================
         # TASK 2: MEDIUM (Holiday Demand Spike)
@@ -83,7 +77,6 @@ class SupplyChainEnv(Environment):
             self.shipment_pipeline = {"SKU-LAPTOP": {1: 0, 2: 0, 3: 0, 4: 0}}
             self.history = {"sales_yesterday": {"SKU-LAPTOP": 0}, "lost_sales_yesterday": {"SKU-LAPTOP": 0}}
             self.market_signal = "WARNING: Black Friday sale begins on Day 10. Demand will spike from 10 to 40 units per day."
-            self.optimal_profit_baseline = 220000.0
 
         # ==========================================
         # TASK 3: HARD (Supply Shock / Delays)
@@ -97,14 +90,11 @@ class SupplyChainEnv(Environment):
             self.shipment_pipeline = {"SKU-LAPTOP": {1: 0, 2: 0, 3: 0, 4: 0}}
             self.history = {"sales_yesterday": {"SKU-LAPTOP": 0}, "lost_sales_yesterday": {"SKU-LAPTOP": 0}}
             self.market_signal = "WARNING: Global shipping crisis. Standard 2-day shipping is delayed to 4 days. Expedited 1-day shipping costs $100 extra per unit."
-            self.optimal_profit_baseline = 105000.0
 
         return self._build_observation(reward=0.0, done=False)
 
     def step(self, action: SupplyChainAction) -> SupplyChainObservation:
         """Execute one day of the simulation. Returns observation with reward and done."""
-        step_reward = 0.0
-
         # 1. Process Arrivals
         for pid in self.catalog.keys():
             arriving_today = self.shipment_pipeline[pid].get(1, 0)
@@ -135,7 +125,6 @@ class SupplyChainEnv(Environment):
 
             if self.cash_balance >= cost:
                 self.cash_balance -= cost
-                step_reward -= cost
                 current_queued = self.shipment_pipeline[pid].get(delivery_days, 0)
                 self.shipment_pipeline[pid][delivery_days] = current_queued + order.quantity
 
@@ -151,29 +140,46 @@ class SupplyChainEnv(Environment):
 
         actual_demand = {"SKU-LAPTOP": demand_qty}
 
-        # 4. Fulfill Demand & Calculate Cash Flow
+        # 4. Fulfill Demand, update cash, compute per-SKU newsvendor reward
+        product_rewards = []
         for pid, demand in actual_demand.items():
-            stock = self.inventory[pid]
-            sold = min(stock, demand)
+            stock_before = self.inventory[pid]       # total stock before selling
+            sold = min(stock_before, demand)
             missed = demand - sold
+            remaining = stock_before - sold           # stock left after selling
 
-            self.inventory[pid] -= sold
+            # Update inventory and history
+            self.inventory[pid] = remaining
             self.history["sales_yesterday"][pid] = sold
             self.history["lost_sales_yesterday"][pid] = missed
 
-            margin = self.catalog[pid]["margin"]
-            order_cost = self.catalog[pid]["order_cost"]
-
-            # Revenue = selling price × units sold (cost + margin = 1200)
-            revenue = sold * (order_cost + margin)
-            holding_cost = self.inventory[pid] * self.catalog[pid]["holding_cost"]
-            penalty = missed * self.catalog[pid]["penalty"]
-
-            daily_reward = revenue - holding_cost - penalty
+            # Cash flow: revenue from sales (still drives budget for future orders)
+            revenue = sold * (self.catalog[pid]["order_cost"] + self.catalog[pid]["margin"])
             self.cash_balance += revenue
-            step_reward += daily_reward
 
-        self.total_profit += step_reward
+            # ------------------------------------------------------------------
+            # Newsvendor step reward — bounded [0, 1]
+            #
+            # Scenario 1 — Overage (all demand met, stock remains):
+            #   reward = 1 - (remaining / stock_before)
+            #   → rewards efficient use of inventory; perfect sell-through = 1.0
+            #
+            # Scenario 2 — Underage (stockout, unmet demand):
+            #   reward = 1 - (missed / demand)
+            #   → rewards high service level; zero missed orders = 1.0
+            # ------------------------------------------------------------------
+            if missed == 0:
+                # Overage or perfect match
+                product_reward = 1.0 - (remaining / stock_before) if stock_before > 0 else 1.0
+            else:
+                # Underage (demand > 0 guaranteed since missed > 0)
+                product_reward = 1.0 - (missed / demand)
+
+            product_rewards.append(product_reward)
+
+        # Average across SKUs (scales cleanly to multi-product tasks)
+        step_reward = sum(product_rewards) / len(product_rewards) if product_rewards else 0.0
+        self.total_reward += step_reward
 
         # 5. Advance Time
         self.current_day += 1
@@ -182,8 +188,7 @@ class SupplyChainEnv(Environment):
         # Sync OpenEnv state container
         self._state.step_count += 1
         self._state.current_task_id = self.current_task_id
-        self._state.total_profit = self.total_profit
-        self._state.optimal_profit_baseline = self.optimal_profit_baseline
+        self._state.total_reward = self.total_reward
         self._state.grader_score = self.get_grader_score()
 
         return self._build_observation(reward=step_reward, done=done)
@@ -192,8 +197,7 @@ class SupplyChainEnv(Environment):
     def state(self) -> SupplyChainState:
         """OpenEnv-required property: returns current episode metadata."""
         self._state.current_task_id = self.current_task_id
-        self._state.total_profit = self.total_profit
-        self._state.optimal_profit_baseline = self.optimal_profit_baseline
+        self._state.total_reward = self.total_reward
         self._state.grader_score = self.get_grader_score()
         return self._state
 
@@ -227,8 +231,10 @@ class SupplyChainEnv(Environment):
     # OPENENV REQUIRED GRADER (0.0 to 1.0)
     # ==========================================
     def get_grader_score(self) -> float:
-        """Returns a normalized score between 0.0 and 1.0 based on profit performance."""
-        if self.total_profit <= 0:
-            return 0.0
-        score = self.total_profit / self.optimal_profit_baseline
-        return max(0.0, min(1.0, score))
+        """
+        Returns a normalized score in [0.0, 1.0].
+        total_reward = sum of per-step newsvendor rewards / max_days
+        Each step reward is already in [0, 1], so dividing by max_days keeps
+        the episode score in [0, 1] with partial-progress credit throughout.
+        """
+        return max(0.0, min(1.0, self.total_reward / self.max_days))

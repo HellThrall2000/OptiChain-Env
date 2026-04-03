@@ -1,11 +1,6 @@
 from pydantic import BaseModel, Field
 from typing import List, Dict
-
-try:
-    from openenv.core.env_server.interfaces import Action, Observation, State
-except ImportError:
-    from core.env_server.interfaces import Action, Observation, State
-
+from openenv.core.env_server.interfaces import Action, Observation, State
 
 # --- ACTION SPACE ---
 class PurchaseOrder(BaseModel):
@@ -48,6 +43,5 @@ class SupplyChainObservation(Observation):
 class SupplyChainState(State):
     # Inherits from State: episode_id: str, step_count: int
     current_task_id: str = ""
-    total_profit: float = 0.0
-    optimal_profit_baseline: float = 0.0
-    grader_score: float = 0.0
+    total_reward: float = 0.0   # cumulative sum of per-step newsvendor rewards
+    grader_score: float = 0.0   # total_reward / max_days, clamped to [0.0, 1.0]
