@@ -2,8 +2,9 @@
 Inference Script for OptiChain-Env
 ===================================
 MANDATORY HACKATHON CONFIGURATION
-- Uses API_BASE_URL, MODEL_NAME, and HF_TOKEN/API_KEY from the environment.
-- Uses OpenAI Client for all LLM calls.
+- Reads API_BASE_URL, MODEL_NAME, HF_TOKEN from environment.
+- Uses OpenAI Python client for all LLM calls.
+- Emits structured [START], [STEP], [END] logs for automated scoring.
 """
 
 import os
@@ -11,195 +12,185 @@ import json
 from dotenv import load_dotenv
 from openai import OpenAI
 from env.core import SupplyChainEnv
-from env.schemas import SupplyChainAction
+from env.schemas import SupplyChainAction, SupplyChainObservation
 
 # Load environment variables for local testing
 load_dotenv()
 
 # =================================================================
-# 🔵 AI CLIENT CONFIGURATION
+# AI CLIENT CONFIGURATION
 # =================================================================
 
-# -----------------------------------------------------------------
-# OPTION 1: OLLAMA (ACTIVE FOR LOCAL TESTING)
-# -----------------------------------------------------------------
+# --- OPTION 1: OLLAMA (Active for Local Testing) ---
 API_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1")
-API_KEY = "ollama"
-MODEL_NAME = os.environ.get("MODEL_NAME", "llama3.2:3b")
+API_KEY      = "ollama"
+MODEL_NAME   = os.environ.get("MODEL_NAME") or "llama3.2:3b"
 
-client = OpenAI(
-    base_url=API_BASE_URL,
-    api_key=API_KEY
-)
+# --- OPTION 2: GROQ CLOUD (Commented Out) ---
+# API_BASE_URL = "https://api.groq.com/openai/v1"
+# API_KEY      = os.environ.get("GROQ_API_KEY")
+# MODEL_NAME   = "llama-3.3-70b-versatile"
 
+client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
 # =================================================================
 
 
-def get_agent_action(obs):
+def get_agent_action(obs: SupplyChainObservation) -> tuple[SupplyChainAction, str]:
     """
-    Takes the current environment observation and runs the Multi-Agent pipeline.
+    Multi-agent pipeline: Analyst reasons about the market, Executor formats the JSON.
     Returns: (SupplyChainAction, reasoning_string)
     """
     # =========================================================
-    # 🧠 PYTHON LOGIC ENGINE & GUARDRAILS
+    # 1. EXTRACT TELEMETRY FOR THE LLM
     # =========================================================
-    current_stock = obs.warehouse_status[0].current_stock
-    incoming_shipments = sum(obs.warehouse_status[0].incoming_shipments.values())
-    total_inventory_position = current_stock + incoming_shipments
+    wh = obs.warehouse_status[0]
+    current_stock = wh.current_stock
+    incoming_shipments = sum(wh.incoming_shipments.values())
+    total_inventory_pos = current_stock + incoming_shipments
     days_remaining = obs.total_days - obs.current_day
     
-    # 1. Detect Crisis
-    is_crisis = "crisis" in obs.market_trend_signal.lower() or "delay" in obs.market_trend_signal.lower()
-    is_spike = "Black Friday" in obs.market_trend_signal
-    
-    # 2. Dynamic Economics
-    unit_cost = 900 if is_crisis else 800
-    expedite_flag = "true" if is_crisis else "false"
-    lead_time = 1 if is_crisis else 2
-    
-    # 3. Affordability
-    safe_cash = obs.cash_balance - 8000
-    max_affordable = int(safe_cash // unit_cost) if safe_cash > 0 else 0
+    sales_yesterday = wh.sales_yesterday
+    lost_yesterday = wh.lost_sales_yesterday
 
-    # 4. Target Setting
-    target = 40
-    if is_spike:
-        target = 160
-    elif is_crisis:
-        target = 60
-        
-    shortfall = max(0, target - total_inventory_position)
-    recommended_order = min(shortfall, max_affordable)
+    # Determine dynamic costs to give the LLM accurate budget info
+    is_crisis = "crisis" in obs.market_trend_signal.lower() or "delay" in obs.market_trend_signal.lower()
+    std_cost = 800
+    exp_cost = 900 if is_crisis else 160 # In standard mode, expedite is 800+100? Wait, core.py says cost += 100. So 900 always for expedite.
+    exp_cost = 900 
     
-    # 🛑 GUARDRAIL 1: BURN-DOWN STRATEGY
-    # Do not buy more inventory than we can physically sell in the remaining days.
-    max_daily_demand = 40 if is_spike else 10
-    max_possible_sales = days_remaining * max_daily_demand
-    if total_inventory_position >= max_possible_sales:
-        recommended_order = 0
-        
-    # 🛑 GUARDRAIL 2: SHIPPING TRAP
-    # Do not order if the shipping takes longer than the days left in the simulation!
-    if days_remaining <= lead_time:
-        recommended_order = 0
+    # Calculate affordability limits (keeping $8,000 safe buffer)
+    safe_cash = obs.cash_balance - 8000
+    max_afford_std = int(safe_cash // std_cost) if safe_cash > 0 else 0
+    max_afford_exp = int(safe_cash // exp_cost) if safe_cash > 0 else 0
+
+    # Format the pipeline so the LLM knows exactly when stock arrives
+    pipeline_str = ", ".join([f"{qty} units in {days} days" for days, qty in wh.incoming_shipments.items() if qty > 0])
+    if not pipeline_str:
+        pipeline_str = "No incoming shipments."
 
     # =========================================================
-    # 🤖 AGENT 1: THE ANALYST (UI Explanation)
+    # 🤖 AGENT 1: THE ANALYST (Strategic Decision Maker)
     # =========================================================
     analyst_prompt = (
-        "You are a Supply Chain Manager explaining a decision to stakeholders.\n"
-        "The system has calculated the perfect mathematically sound order quantity.\n"
-        "Write exactly ONE sentence explaining that you are ordering the RECOMMENDED_ORDER amount."
+        "You are an elite AI Supply Chain Manager. Your goal is to maximize total profit over a 30-day period.\n\n"
+        "=== UNIT ECONOMICS ===\n"
+        "- Standard Order: $800 cost, takes 2 days (4 days during crisis).\n"
+        "- Expedited Order: $900 cost, takes 1 day.\n"
+        "- Revenue per sale: $1,200\n"
+        "- Holding cost: $2 / unit / day\n"
+        "- Stockout penalty: $100 / missed sale\n\n"
+        "=== STRATEGY GUIDELINES ===\n"
+        "1. Predict demand based on the Market Signal and yesterday's sales.\n"
+        "2. Check your 'Inventory Position' (Stock + Incoming). Do you have enough to cover the lead time?\n"
+        "3. If a spike is coming, pre-order heavily. If a crisis is active, use expedited shipping to avoid $100/day penalties.\n"
+        "4. DO NOT order more units than the 'Max Affordable' limit.\n"
+        "5. As you approach Day 30, burn down your stock to 0. Do not order stock that will arrive after Day 30.\n\n"
+        "You must output a short paragraph of reasoning, followed EXACTLY by these two lines at the very end:\n"
+        "ORDER_QUANTITY: [number]\n"
+        "EXPEDITE: [true/false]"
     )
     
     analyst_context = (
-        f"DAY: {obs.current_day}/30\n"
-        f"MARKET: {obs.market_trend_signal}\n"
-        f"RECOMMENDED_ORDER: {recommended_order}\n"
-        "Explain the decision:"
+        f"=== CURRENT STATUS ===\n"
+        f"DAY: {obs.current_day} of {obs.total_days} ({days_remaining} days remaining)\n"
+        f"MARKET SIGNAL: {obs.market_trend_signal}\n"
+        f"YESTERDAY'S PERFORMANCE: Sold {sales_yesterday}, Missed {lost_yesterday} sales.\n"
+        f"CASH BALANCE: ${obs.cash_balance:.2f}\n"
+        f"CURRENT STOCK: {current_stock} units\n"
+        f"PIPELINE: {pipeline_str}\n"
+        f"TOTAL INVENTORY POSITION: {total_inventory_pos} units\n\n"
+        f"=== BUDGET LIMITS ===\n"
+        f"Max Affordable (Standard): {max_afford_std} units\n"
+        f"Max Affordable (Expedited): {max_afford_exp} units\n\n"
+        "Write your reasoning and final decision:"
     )
 
     try:
-        analyst_response = client.chat.completions.create(
+        resp = client.chat.completions.create(
             model=MODEL_NAME,
             messages=[
                 {"role": "system", "content": analyst_prompt},
-                {"role": "user", "content": analyst_context}
+                {"role": "user",   "content": analyst_context},
             ],
-            temperature=0.0
+            temperature=0.1, # Slight temperature for reasoning, but kept low for math stability
         )
-        strategic_plan = analyst_response.choices[0].message.content
-    except Exception as e:
-        strategic_plan = f"Analyst Error: {e}. Defaulting to {recommended_order}."
+        strategic_plan = resp.choices[0].message.content
+    except Exception as exc:
+        strategic_plan = f"Analyst unavailable ({exc}).\nORDER_QUANTITY: 0\nEXPEDITE: false"
 
     # =========================================================
-    # 🤖 AGENT 2: THE EXECUTOR (Foolproof JSON Generator)
+    # 🤖 AGENT 2: THE EXECUTOR (Strict JSON Formatter)
     # =========================================================
-    # We construct the exact JSON string we want the AI to output.
-    if recommended_order > 0:
-        exact_json = f'{{"orders": [{{"product_id": "SKU-LAPTOP", "quantity": {recommended_order}, "expedite_shipping": {expedite_flag}}}]}}'
-    else:
-        exact_json = '{"orders": []}'
-
     executor_prompt = (
-        "You are a strict Data Entry API. You must output ONLY valid JSON.\n"
-        "Do not output markdown, do not output explanations."
+        "You are a strict Data Parsing API. Read the Analyst's plan, locate the 'ORDER_QUANTITY' and 'EXPEDITE' values, "
+        "and output ONLY valid JSON using this exact schema:\n"
+        "{\n"
+        '  "orders": [\n'
+        '    {"product_id": "SKU-LAPTOP", "quantity": <INT>, "expedite_shipping": <BOOL>}\n'
+        "  ]\n"
+        "}\n"
+        "If ORDER_QUANTITY is 0, output: {\"orders\": []}\n"
+        "Do not output markdown blocks or any other text."
     )
-    
-    executor_context = f"Output this EXACT JSON string and nothing else:\n{exact_json}"
 
     try:
-        executor_response = client.chat.completions.create(
+        resp = client.chat.completions.create(
             model=MODEL_NAME,
             messages=[
                 {"role": "system", "content": executor_prompt},
-                {"role": "user", "content": executor_context}
+                {"role": "user",   "content": f"ANALYST PLAN:\n{strategic_plan}"},
             ],
             response_format={"type": "json_object"},
-            temperature=0.0 
+            temperature=0.0,
         )
-        
-        content = executor_response.choices[0].message.content
-        action = SupplyChainAction.model_validate_json(content)
-        
-    except Exception as e:
-        # Failsafe guaranteed fallback
-        if recommended_order > 0:
-            from env.schemas import PurchaseOrder
-            action = SupplyChainAction(orders=[
-                PurchaseOrder(product_id="SKU-LAPTOP", quantity=recommended_order, expedite_shipping=is_crisis)
-            ])
-        else:
-            action = SupplyChainAction(orders=[])
+        action = SupplyChainAction.model_validate_json(resp.choices[0].message.content)
+    except Exception:
+        action = SupplyChainAction(orders=[])
 
     return action, strategic_plan
 
 
 def main():
     """
-    Runs the full CLI hackathon evaluation loop.
+    Full CLI evaluation loop.
+    Emits [START], [STEP], [END] structured logs required by the hackathon scorer.
     """
-    env = SupplyChainEnv()
+    env   = SupplyChainEnv()
     tasks = ["task_01_easy", "task_02_medium", "task_03_hard"]
-    report_card = {}
-
-    print("\n" + "═"*70)
-    print("🚀 OPENENV MULTI-AGENT EVALUATION: START")
-    print(f"🧠 MODEL: {MODEL_NAME}")
-    print("═"*70)
+    report_card: dict[str, float] = {}
 
     for task_id in tasks:
-        print(f"\n📍 STARTING {task_id.upper()}")
-        obs = env.reset(task_id)
-        done = False
+        print("[START]", json.dumps({"task_id": task_id, "model": MODEL_NAME}))
 
-        while not done:
+        obs  = env.reset(task_id=task_id)
+
+        while not obs.done:
             action, strategic_plan = get_agent_action(obs)
-            
-            # Print the AI's thoughts to the terminal
-            print(f"\n   [Day {obs.current_day:02} Analyst] {strategic_plan.strip()}")
-            print(f"   [Day {obs.current_day:02} Executor] JSON Sent: {action.model_dump_json()}")
 
-            # Step the environment
-            obs, reward, done, info = env.step(action)
-            
-            print(f"   📊 EOD RESULT: Bank ${obs.cash_balance:,.0f} | Stock: {obs.warehouse_status[0].current_stock}\n" + "-"*40)
+            print("[STEP]", json.dumps({
+                "task_id":   task_id,
+                "day":       obs.current_day,
+                "action":    action.model_dump(),
+                "reasoning": strategic_plan.strip(),
+            }))
 
-        # Task Results
+            obs = env.step(action)
+
+            print("[STEP]", json.dumps({
+                "task_id": task_id,
+                "day":     obs.current_day,
+                "reward":  round(obs.reward, 2),
+                "done":    obs.done,
+                "cash":    round(obs.cash_balance, 2),
+                "stock":   obs.warehouse_status[0].current_stock if obs.warehouse_status else 0,
+            }))
+
         score = env.get_grader_score()
         report_card[task_id] = score
-        print(f"✅ {task_id} Completed. Score: {score:.2f}")
+        print("[END]", json.dumps({"task_id": task_id, "score": round(score, 4)}))
 
-    # ==========================================
-    # FINAL HACKATHON REPORT CARD
-    # ==========================================
-    print("\n" + "═"*70)
-    print("                OFFICIAL REPORT CARD                ")
-    print("═"*70)
-    for tid, s in report_card.items():
-        rating = "⭐" * int(s * 5) if s > 0 else "❌ FAILED"
-        print(f"{tid:20} : {s:.2f} / 1.0  {rating}")
-    print("═"*70 + "\n")
+    # Final summary
+    print("[END]", json.dumps({"report_card": report_card}))
 
 
 if __name__ == "__main__":

@@ -1,18 +1,24 @@
-version: "1.0.0"
-name: "optichain-inventory-v1"
-description: "AI-driven supply chain and inventory optimization environment."
-entry_point: "app.main:app"
+spec_version: 1
+name: optichain-inventory-v1
+description: "AI-driven supply chain inventory optimization. The agent acts as a Supply Chain Manager, placing daily purchase orders to maximise profit across a 30-day simulation."
+type: space
+runtime: fastapi
+app: server.app:app
+port: 7860
 tasks:
-  - id: "task_01_easy"
-    name: "Stable Demand"
-    difficulty: "easy"
-  - id: "task_02_medium"
-    name: "Holiday Spike"
-    difficulty: "medium"
-  - id: "task_03_hard"
-    name: "Supply Chain Crisis"
-    difficulty: "hard"
+  - id: task_01_easy
+    name: Stable Demand
+    description: "Manage stable demand of ~10 units/day with ample starting capital."
+    difficulty: easy
+  - id: task_02_medium
+    name: Holiday Spike
+    description: "Anticipate a Black Friday spike from 10 to 40 units/day starting Day 10."
+    difficulty: medium
+  - id: task_03_hard
+    name: Supply Chain Crisis
+    description: "Navigate a 4-day shipping delay crisis with costly expedited shipping as the only fast option."
+    difficulty: hard
 tags:
-  - "supply-chain"
-  - "optimization"
-  - "logistics"
+  - supply-chain
+  - optimization
+  - logistics
