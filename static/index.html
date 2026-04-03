@@ -501,8 +501,10 @@ async function startSim() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ task_id: currentTask })
     });
-    const { observation } = await resetRes.json();
-    applyObservation(observation);
+    const resetData = await resetRes.json();
+    // openenv wraps as {observation, reward, done}; plain FastAPI returns directly
+    const initObs = resetData.observation || resetData;
+    applyObservation(initObs);
   } catch (e) {
     console.error(e);
     alert("Failed to connect to backend. Make sure main.py is running!");
@@ -523,7 +525,7 @@ async function runLoop() {
 
   while (running && !paused) {
     try {
-      // 1. Call the AI Bridge Endpoint
+      // 1. Call the AI Bridge Endpoint (LLM decides action, then steps env)
       const res = await fetch(`${API}/demo/step_sim`, { method: 'POST' });
       const data = await res.json();
       const { observation, reward, done, action_taken, reasoning } = data;

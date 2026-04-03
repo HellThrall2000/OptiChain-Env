@@ -18,18 +18,17 @@ from env.schemas import SupplyChainAction, SupplyChainObservation
 load_dotenv()
 
 # =================================================================
-# AI CLIENT CONFIGURATION
+# AI CLIENT CONFIGURATION (hackathon-required env var names)
+# Uses `or` so empty strings in .env still fall back to defaults.
+# Local Ollama: set API_BASE_URL=http://localhost:11434/v1 in .env
+# Cloud (Groq):  set API_BASE_URL=https://api.groq.com/openai/v1
 # =================================================================
-
-# --- OPTION 1: OLLAMA (Active for Local Testing) ---
-API_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1")
-API_KEY      = "ollama"
+API_BASE_URL = os.environ.get("API_BASE_URL") or "http://localhost:11434/v1"
+API_KEY      = (os.environ.get("HF_TOKEN")
+                or os.environ.get("API_KEY")
+                or os.environ.get("GROQ_API_KEY")
+                or "ollama")
 MODEL_NAME   = os.environ.get("MODEL_NAME") or "llama3.2:3b"
-
-# --- OPTION 2: GROQ CLOUD (Commented Out) ---
-# API_BASE_URL = "https://api.groq.com/openai/v1"
-# API_KEY      = os.environ.get("GROQ_API_KEY")
-# MODEL_NAME   = "llama-3.3-70b-versatile"
 
 client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
 # =================================================================
@@ -41,7 +40,7 @@ def get_agent_action(obs: SupplyChainObservation) -> tuple[SupplyChainAction, st
     Returns: (SupplyChainAction, reasoning_string)
     """
     # =========================================================
-    # 1. EXTRACT TELEMETRY FOR THE LLM
+    # 1. EXTRACT RAW TELEMETRY FOR THE LLM (No Python Math)
     # =========================================================
     wh = obs.warehouse_status[0]
     current_stock = wh.current_stock
@@ -51,17 +50,6 @@ def get_agent_action(obs: SupplyChainObservation) -> tuple[SupplyChainAction, st
     
     sales_yesterday = wh.sales_yesterday
     lost_yesterday = wh.lost_sales_yesterday
-
-    # Determine dynamic costs to give the LLM accurate budget info
-    is_crisis = "crisis" in obs.market_trend_signal.lower() or "delay" in obs.market_trend_signal.lower()
-    std_cost = 800
-    exp_cost = 900 if is_crisis else 160 # In standard mode, expedite is 800+100? Wait, core.py says cost += 100. So 900 always for expedite.
-    exp_cost = 900 
-    
-    # Calculate affordability limits (keeping $8,000 safe buffer)
-    safe_cash = obs.cash_balance - 8000
-    max_afford_std = int(safe_cash // std_cost) if safe_cash > 0 else 0
-    max_afford_exp = int(safe_cash // exp_cost) if safe_cash > 0 else 0
 
     # Format the pipeline so the LLM knows exactly when stock arrives
     pipeline_str = ", ".join([f"{qty} units in {days} days" for days, qty in wh.incoming_shipments.items() if qty > 0])
@@ -80,11 +68,11 @@ def get_agent_action(obs: SupplyChainObservation) -> tuple[SupplyChainAction, st
         "- Holding cost: $2 / unit / day\n"
         "- Stockout penalty: $100 / missed sale\n\n"
         "=== STRATEGY GUIDELINES ===\n"
-        "1. Predict demand based on the Market Signal and yesterday's sales.\n"
-        "2. Check your 'Inventory Position' (Stock + Incoming). Do you have enough to cover the lead time?\n"
-        "3. If a spike is coming, pre-order heavily. If a crisis is active, use expedited shipping to avoid $100/day penalties.\n"
-        "4. DO NOT order more units than the 'Max Affordable' limit.\n"
-        "5. As you approach Day 30, burn down your stock to 0. Do not order stock that will arrive after Day 30.\n\n"
+        "1. PREDICTIVE DEMAND: Demand has random daily fluctuations. Analyze 'Yesterday's Performance' to gauge the current volume and maintain a safety buffer.\n"
+        "2. PIPELINE AWARENESS: Check your 'Inventory Position' (Stock + Incoming). Do you have enough to cover the lead time?\n"
+        "3. BUDGET MATH: You must calculate affordability yourself! Do NOT order more units than your Cash Balance can afford (Qty * Cost).\n"
+        "4. ADAPTABILITY: If a spike is coming, pre-order heavily. If a shipping crisis is active, use expedited shipping to avoid stockout penalties.\n"
+        "5. BURN-DOWN: As you approach Day 30, burn down your stock to 0. Do not order stock that will arrive after the simulation ends.\n\n"
         "You must output a short paragraph of reasoning, followed EXACTLY by these two lines at the very end:\n"
         "ORDER_QUANTITY: [number]\n"
         "EXPEDITE: [true/false]"
@@ -99,9 +87,6 @@ def get_agent_action(obs: SupplyChainObservation) -> tuple[SupplyChainAction, st
         f"CURRENT STOCK: {current_stock} units\n"
         f"PIPELINE: {pipeline_str}\n"
         f"TOTAL INVENTORY POSITION: {total_inventory_pos} units\n\n"
-        f"=== BUDGET LIMITS ===\n"
-        f"Max Affordable (Standard): {max_afford_std} units\n"
-        f"Max Affordable (Expedited): {max_afford_exp} units\n\n"
         "Write your reasoning and final decision:"
     )
 
@@ -112,7 +97,7 @@ def get_agent_action(obs: SupplyChainObservation) -> tuple[SupplyChainAction, st
                 {"role": "system", "content": analyst_prompt},
                 {"role": "user",   "content": analyst_context},
             ],
-            temperature=0.1, # Slight temperature for reasoning, but kept low for math stability
+            temperature=0.1, # Slight temperature allows predictive flexibility
         )
         strategic_plan = resp.choices[0].message.content
     except Exception as exc:
