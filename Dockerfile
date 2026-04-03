@@ -1,7 +1,7 @@
 # Use a lightweight Python image
 FROM python:3.11-slim
 
-# Create a non-root user (Mandatory for Hugging Face Spaces)
+# Create a non-root user (mandatory for Hugging Face Spaces)
 RUN useradd -m -u 1000 user
 USER user
 ENV PATH="/home/user/.local/bin:$PATH"
@@ -19,5 +19,5 @@ COPY --chown=user . .
 # Expose the port Hugging Face expects
 EXPOSE 7860
 
-# Start the FastAPI server using Uvicorn
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "7860"]
+# Start the FastAPI server from the canonical OpenEnv entry point
+CMD ["uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "7860"]
