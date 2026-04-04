@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from env.core import SupplyChainEnv
-from env.schemas import SupplyChainAction, SupplyChainObservation, SupplyChainState
+from env.schemas import SupplyChainAction, SupplyChainObservation, SupplyChainState, SupplyChainReward
 from inference import get_agent_action
 
 # ---------------------------------------------------------------------------
@@ -88,7 +88,7 @@ def reset_env(req: ResetRequest):
 
 class StepResponse(BaseModel):
     observation: SupplyChainObservation
-    reward: float
+    reward: SupplyChainReward
     done: bool
     info: dict
 
@@ -101,9 +101,13 @@ def step_env(action: SupplyChainAction):
     obs = env.step(action)
     return StepResponse(
         observation=obs,
-        reward=obs.reward,
+        reward=SupplyChainReward(
+            step_reward=obs.reward,
+            total_reward=env.total_reward,
+            grader_score=env.get_grader_score(),
+        ),
         done=obs.done,
-        info={"current_reward": env.total_reward, "grader_score": env.get_grader_score()},
+        info={"current_reward": env.total_reward},
     )
 
 

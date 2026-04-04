@@ -39,6 +39,13 @@ class SupplyChainObservation(Observation):
     done: bool = Field(False, description="Whether the episode has ended")
 
 
+# --- REWARD (typed Pydantic model, required by hackathon spec) ---
+class SupplyChainReward(BaseModel):
+    step_reward: float = Field(0.0, description="Newsvendor reward for this day [0-1]")
+    total_reward: float = Field(0.0, description="Cumulative sum of all step rewards so far")
+    grader_score: float = Field(0.0, description="Normalized episode score: total_reward / 30, clamped [0-1]")
+
+
 # --- STATE (OpenEnv episode metadata) ---
 class SupplyChainState(State):
     # Inherits from State: episode_id: str, step_count: int
