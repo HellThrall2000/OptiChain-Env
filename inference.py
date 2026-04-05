@@ -20,17 +20,20 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 # =================================================================
-# AI CLIENT CONFIGURATION (hackathon-required env var names)
-# Uses `or` so empty strings in .env still fall back to defaults.
-# Local Ollama: set API_BASE_URL=http://localhost:11434/v1 in .env
-# Cloud (Groq):  set API_BASE_URL=https://api.groq.com/openai/v1
+# MANDATORY HACKATHON CONFIGURATION
+# Set these in your .env or HF Space secrets before running.
+# API_BASE_URL  — LLM endpoint (OpenAI-compatible)
+# MODEL_NAME    — model identifier
+# HF_TOKEN      — your Hugging Face / API key
 # =================================================================
 API_BASE_URL = os.environ.get("API_BASE_URL") or "http://localhost:11434/v1"
-API_KEY      = (os.environ.get("HF_TOKEN")
-                or os.environ.get("API_KEY")
-                #or os.environ.get("GROQ_API_KEY")
-                or "ollama")
+API_KEY      = os.environ.get("HF_TOKEN") or os.environ.get("API_KEY") or "ollama"
 MODEL_NAME   = os.environ.get("MODEL_NAME") or "llama3.1:8b"
+
+# Inference hyper-parameters
+ANALYST_TEMPERATURE  = 0.1   # slight randomness for strategic reasoning
+EXECUTOR_TEMPERATURE = 0.0   # deterministic JSON formatting
+MAX_TOKENS           = 512   # cap token usage per call
 
 client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
 # =================================================================
@@ -120,7 +123,8 @@ def get_agent_action(obs: SupplyChainObservation) -> tuple[SupplyChainAction, st
                 {"role": "system", "content": analyst_prompt},
                 {"role": "user",   "content": analyst_context},
             ],
-            temperature=0.1,  # Slight temperature allows predictive flexibility
+            temperature=ANALYST_TEMPERATURE,
+            max_tokens=MAX_TOKENS,
             timeout=30,
         )
         strategic_plan = resp.choices[0].message.content
@@ -151,7 +155,8 @@ def get_agent_action(obs: SupplyChainObservation) -> tuple[SupplyChainAction, st
                 {"role": "user",   "content": f"ANALYST PLAN:\n{strategic_plan}"},
             ],
             response_format={"type": "json_object"},
-            temperature=0.0,
+            temperature=EXECUTOR_TEMPERATURE,
+            max_tokens=MAX_TOKENS,
             timeout=30,
         )
         action = SupplyChainAction.model_validate_json(resp.choices[0].message.content)
