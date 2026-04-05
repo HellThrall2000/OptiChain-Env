@@ -161,18 +161,39 @@ def get_agent_action(obs: SupplyChainObservation) -> tuple[SupplyChainAction, st
         action = SupplyChainAction(orders=[])
 
     # =================================================================
-    # PYTHON GUARDRAILS — clip LLM output to what's actually affordable
-    # Prevents ghost orders and logic-tag dissonance from mattering.
+    # PYTHON GUARDRAILS — clip LLM output to what's affordable AND useful
+    # Three caps applied in order:
+    #   1. Burn-down: don't order if inventory already covers remaining demand
+    #   2. Demand cap: never hold more than remaining_days × max_daily_demand
+    #   3. Affordability: never exceed cash balance
+    #   4. Lead-time: don't order if delivery arrives after episode ends
     # =================================================================
+    is_spike  = "Black Friday" in obs.market_trend_signal
+    is_crisis = "crisis" in obs.market_trend_signal.lower() or "delay" in obs.market_trend_signal.lower()
+
+    # Estimate max daily demand from the task context
+    max_daily_demand = 45 if is_spike else (20 if is_crisis else 12)
+    lead_time = 1 if is_crisis else 2
+
+    max_useful = max(0, days_remaining * max_daily_demand - total_inventory_pos)
+
     clipped_orders = []
     remaining_cash = obs.cash_balance
     for order in action.orders:
-        # SKU-LAPTOP order cost is $800; expedited adds EXPEDITE_SURCHARGE per unit
-        unit_cost = (800 + EXPEDITE_SURCHARGE) if order.expedite_shipping else 800
+        unit_cost = 900 if order.expedite_shipping else 800
         max_affordable = int(remaining_cash // unit_cost) if remaining_cash > 0 else 0
-        qty = min(order.quantity, max_affordable)
+
+        qty = order.quantity
+        qty = min(qty, max_useful)          # demand cap
+        qty = min(qty, max_affordable)      # affordability cap
+
+        # Lead-time gate: no point ordering if it arrives after Day 30
+        if days_remaining <= lead_time:
+            qty = 0
+
         if qty > 0:
             remaining_cash -= qty * unit_cost
+            max_useful -= qty               # reduce remaining headroom
             clipped_orders.append(PurchaseOrder(
                 product_id=order.product_id,
                 quantity=qty,

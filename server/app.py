@@ -3,24 +3,33 @@ OptiChain-Env: OpenEnv-compliant Supply Chain Optimization Environment
 =======================================================================
 Entry point for the FastAPI server.
 
+Required by:
+  - openenv validate spec  (checks server/app.py exists)
+  - openenv.yaml           (app: server.app:app)
+  - Dockerfile             (CMD uvicorn server.app:app)
+
 Usage:
     uvicorn server.app:app --host 0.0.0.0 --port 7860
 """
 
-import uvicorn
-import os
 import logging
 from fastapi import FastAPI, HTTPException
-
-logger = logging.getLogger(__name__)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from typing import Optional
 
 from env.core import SupplyChainEnv
-from env.schemas import SupplyChainAction, SupplyChainObservation, SupplyChainState, SupplyChainReward
+from env.schemas import (
+    SupplyChainAction,
+    SupplyChainObservation,
+    SupplyChainState,
+    SupplyChainReward,
+)
 from inference import get_agent_action
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Single shared environment instance (single-session, per OpenEnv spec)
@@ -28,23 +37,19 @@ from inference import get_agent_action
 env = SupplyChainEnv()
 
 # ---------------------------------------------------------------------------
-# App creation — use openenv create_app when available for spec compliance,
-# fall back to plain FastAPI so the server still boots without the package.
+# FastAPI app — we build our own rather than using create_app() because:
+#   1. create_app() instantiates a SECOND env internally (out of sync)
+#   2. create_app() registers /reset, /step, /state first — our custom
+#      versions with task_id support would be shadowed (FastAPI first-match)
+#   3. We still inherit from the OpenEnv base classes (Environment, Action,
+#      Observation, State) — the spec validator checks endpoint behaviour,
+#      not whether create_app() was called.
 # ---------------------------------------------------------------------------
-try:
-    from openenv.core.env_server import create_app
-    app = create_app(
-        SupplyChainEnv,
-        SupplyChainAction,
-        SupplyChainObservation,
-        env_name="optichain-inventory-v1",
-    )
-except ImportError:
-    app = FastAPI(
-        title="OpenEnv: OptiChain Supply Chain Optimizer",
-        description="A supply chain inventory management environment for agentic RL.",
-        version="1.0.0",
-    )
+app = FastAPI(
+    title="OpenEnv: OptiChain Supply Chain Optimizer",
+    description="A supply chain inventory management environment for agentic RL.",
+    version="1.0.0",
+)
 
 # ---------------------------------------------------------------------------
 # Middleware
@@ -68,26 +73,27 @@ def serve_dashboard():
     return FileResponse("static/index.html")
 
 
-# ---------------------------------------------------------------------------
+# ===================================================================
 # OpenEnv-required endpoints
 # POST /reset  — task_id selects Easy / Medium / Hard scenario
 # POST /step   — advance simulation one day
 # GET  /state  — current episode metadata (no side effects)
 # GET  /grader — normalized score 0.0–1.0
 # GET  /health — liveness probe for Hugging Face Spaces
-# ---------------------------------------------------------------------------
+# ===================================================================
 
 class ResetRequest(BaseModel):
     task_id: str = "task_01_easy"
+    seed: Optional[int] = None
 
 
 @app.post("/reset", response_model=SupplyChainObservation)
 def reset_env(req: ResetRequest):
     """Wipe state and load a specific task (easy / medium / hard)."""
-    valid = {"task_01_easy", "task_02_medium", "task_03_hard"}
-    if req.task_id not in valid:
-        raise HTTPException(status_code=400, detail=f"Unknown task_id '{req.task_id}'. Valid: {sorted(valid)}")
-    return env.reset(task_id=req.task_id)
+    try:
+        return env.reset(task_id=req.task_id, seed=req.seed)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 class StepResponse(BaseModel):
@@ -111,13 +117,16 @@ def step_env(action: SupplyChainAction):
             grader_score=env.get_grader_score(),
         ),
         done=obs.done,
-        info={"current_reward": env.total_reward},
+        info={
+            "accepted": env.last_accepted_qty,
+            "rejected": env.last_rejected_qty,
+        },
     )
 
 
 @app.get("/state", response_model=SupplyChainState)
 def get_state():
-    """Return current episode metadata (step count, profit, grader score) without advancing time."""
+    """Return current episode metadata (step count, reward, grader score) without advancing time."""
     return env.state
 
 
@@ -127,38 +136,47 @@ class GraderResponse(BaseModel):
 
 @app.get("/grader", response_model=GraderResponse)
 def get_grader():
-    """Return the final normalised score (0.0–1.0) for the current episode."""
+    """Return the final normalised score (0.0-1.0) for the current episode."""
     return GraderResponse(score=env.get_grader_score())
 
 
 @app.get("/health")
 def health_check():
     """Liveness probe — must return 200 for Hugging Face Spaces automated pings."""
-    return {"status": "healthy", "message": "OpenEnv OptiChain is running!"}
+    return {"status": "healthy"}
 
 
-# ---------------------------------------------------------------------------
-# Extra endpoints (task listing, UI demo bridge)
-# ---------------------------------------------------------------------------
+# ===================================================================
+# Extra endpoints (task listing, schema, UI demo bridge)
+# ===================================================================
 
 @app.get("/tasks")
 def get_tasks():
     """List available tasks and the action JSON schema."""
     return {
         "tasks": [
-            {"id": "task_01_easy",   "name": "Stable Store",         "difficulty": "easy"},
-            {"id": "task_02_medium", "name": "Holiday Demand Spike",  "difficulty": "medium"},
-            {"id": "task_03_hard",   "name": "Global Supply Shock",   "difficulty": "hard"},
+            {"id": "task_01_easy",   "name": "Stable Demand",         "difficulty": "easy"},
+            {"id": "task_02_medium", "name": "Holiday Demand Spike",   "difficulty": "medium"},
+            {"id": "task_03_hard",   "name": "Supply Chain Crisis",    "difficulty": "hard"},
         ],
         "action_schema": SupplyChainAction.model_json_schema(),
     }
 
 
+@app.get("/schema")
+def get_schema():
+    """Return observation/action/state JSON schemas for agent introspection."""
+    return {
+        "observation": SupplyChainObservation.model_json_schema(),
+        "action": SupplyChainAction.model_json_schema(),
+        "reward": SupplyChainReward.model_json_schema(),
+        "state": SupplyChainState.model_json_schema(),
+    }
+
+
 @app.post("/demo/step_sim")
 def demo_step_sim():
-    """
-    UI bridge: ask the AI agent for a decision, step the env, return both to the dashboard.
-    """
+    """UI bridge: ask the AI agent for a decision, step the env, return both to the dashboard."""
     if not env.catalog:
         raise HTTPException(status_code=400, detail="Environment not initialised. Call POST /reset first.")
 
@@ -173,10 +191,16 @@ def demo_step_sim():
 
     obs = env.step(action)
     return {
-        "observation": obs,
-        "reward": obs.reward,
+        "observation": obs.model_dump(),
+        "reward": SupplyChainReward(
+            step_reward=obs.reward,
+            total_reward=env.total_reward,
+            grader_score=env.get_grader_score(),
+        ).model_dump(),
         "done": obs.done,
         "action_taken": action.model_dump(),
+        "accepted": env.last_accepted_qty,
+        "rejected": env.last_rejected_qty,
         "reasoning": reasoning,
     }
 
@@ -185,6 +209,7 @@ def demo_step_sim():
 # Dev entry point
 # ---------------------------------------------------------------------------
 def main():
+    import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=7860)
 
 
