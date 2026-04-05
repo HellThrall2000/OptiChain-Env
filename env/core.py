@@ -105,7 +105,9 @@ class SupplyChainEnv(Environment):
                     new_pipeline[day - 1] = qty
             self.shipment_pipeline[pid] = new_pipeline
 
-        # 2. Process New Orders
+        # 2. Process New Orders (track accepted vs rejected)
+        self.last_accepted_qty = 0
+        self.last_rejected_qty = 0
         for order in action.orders:
             pid = order.product_id
             if pid not in self.catalog or order.quantity <= 0:
@@ -127,6 +129,9 @@ class SupplyChainEnv(Environment):
                 self.cash_balance -= cost
                 current_queued = self.shipment_pipeline[pid].get(delivery_days, 0)
                 self.shipment_pipeline[pid][delivery_days] = current_queued + order.quantity
+                self.last_accepted_qty += order.quantity
+            else:
+                self.last_rejected_qty += order.quantity
 
         # 3. Simulate Daily Demand (stochastic)
         if self.current_task_id == "task_01_easy":
@@ -223,6 +228,8 @@ class SupplyChainEnv(Environment):
             cash_balance=self.cash_balance,
             warehouse_status=warehouse,
             market_trend_signal=self.market_signal,
+            last_order_accepted=getattr(self, "last_accepted_qty", 0),
+            last_order_rejected=getattr(self, "last_rejected_qty", 0),
             reward=reward,
             done=done,
         )
