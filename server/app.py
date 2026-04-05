@@ -146,6 +146,74 @@ def health_check():
     return {"status": "healthy"}
 
 
+@app.get("/metadata")
+def get_metadata():
+    """OpenEnv-required: returns environment name and description."""
+    return {
+        "name": "optichain-inventory-v1",
+        "description": (
+            "AI-driven supply chain inventory optimization. "
+            "The agent acts as a Supply Chain Manager, placing daily purchase orders "
+            "to maximise profit across a 30-day simulation."
+        ),
+        "version": "1.0.0",
+        "tasks": [t["id"] for t in [
+            {"id": "task_01_easy"},
+            {"id": "task_02_medium"},
+            {"id": "task_03_hard"},
+        ]],
+    }
+
+
+@app.post("/mcp")
+def mcp_endpoint(request: dict):
+    """OpenEnv-required: minimal JSON-RPC 2.0 handler for MCP compliance."""
+    method = request.get("method", "")
+    req_id = request.get("id", 1)
+
+    if method == "initialize":
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {"tools": {}},
+                "serverInfo": {"name": "optichain-inventory-v1", "version": "1.0.0"},
+            },
+        }
+
+    if method == "tools/list":
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {
+                "tools": [
+                    {
+                        "name": "reset",
+                        "description": "Reset the environment to a specific task.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {"task_id": {"type": "string"}},
+                            "required": ["task_id"],
+                        },
+                    },
+                    {
+                        "name": "step",
+                        "description": "Advance the simulation one day with purchase orders.",
+                        "inputSchema": SupplyChainAction.model_json_schema(),
+                    },
+                ]
+            },
+        }
+
+    # Unknown method — return JSON-RPC error
+    return {
+        "jsonrpc": "2.0",
+        "id": req_id,
+        "error": {"code": -32601, "message": f"Method not found: {method}"},
+    }
+
+
 # ===================================================================
 # Extra endpoints (task listing, schema, UI demo bridge)
 # ===================================================================
