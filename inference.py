@@ -8,7 +8,6 @@ MANDATORY HACKATHON CONFIGURATION
 """
 
 import os
-import json
 import logging
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -204,49 +203,78 @@ def get_agent_action(obs: SupplyChainObservation) -> tuple[SupplyChainAction, st
     return action, strategic_plan
 
 
+BENCHMARK = "optichain-inventory-v1"
+SUCCESS_THRESHOLD = 0.5  # grader score >= 0.5 counts as success
+
+
+def _log_start(task: str, env_name: str, model: str) -> None:
+    print(f"[START] task={task} env={env_name} model={model}", flush=True)
+
+
+def _log_step(step: int, action_str: str, reward: float, done: bool, error: str | None) -> None:
+    error_val = error if error else "null"
+    print(
+        f"[STEP] step={step} action={action_str} reward={reward:.2f} "
+        f"done={str(done).lower()} error={error_val}",
+        flush=True,
+    )
+
+
+def _log_end(success: bool, steps: int, score: float, rewards: list[float]) -> None:
+    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
+    print(
+        f"[END] success={str(success).lower()} steps={steps} "
+        f"score={score:.2f} rewards={rewards_str}",
+        flush=True,
+    )
+
+
 def main():
     """
     Full CLI evaluation loop.
     Emits [START], [STEP], [END] structured logs required by the hackathon scorer.
     """
-    env   = SupplyChainEnv()
+    env = SupplyChainEnv()
     tasks = ["task_01_easy", "task_02_medium", "task_03_hard"]
-    report_card: dict[str, float] = {}
 
     for task_id in tasks:
-        print("[START]", json.dumps({"task_id": task_id, "model": MODEL_NAME}))
+        _log_start(task=task_id, env_name=BENCHMARK, model=MODEL_NAME)
 
-        obs  = env.reset(task_id=task_id)
+        obs = env.reset(task_id=task_id)
+        step = 0
+        rewards: list[float] = []
+        error: str | None = None
 
-        while not obs.done:
-            action, strategic_plan = get_agent_action(obs)
+        try:
+            while not obs.done:
+                step += 1
+                action, _ = get_agent_action(obs)
 
-            requested = sum(o.quantity for o in action.orders)
+                # Compact action string: e.g. "SKU-LAPTOP x10 std"
+                if action.orders:
+                    o = action.orders[0]
+                    mode = "exp" if o.expedite_shipping else "std"
+                    action_str = f"{o.product_id}x{o.quantity}{mode}"
+                else:
+                    action_str = "no_order"
 
-            obs = env.step(action)
+                obs = env.step(action)
+                rewards.append(obs.reward)
 
-            wh = obs.warehouse_status[0] if obs.warehouse_status else None
-            print("[STEP]", json.dumps({
-                "task_id":   task_id,
-                "day":       obs.current_day - 1,
-                "ordered":   requested,
-                "accepted":  env.last_accepted_qty,
-                "rejected":  env.last_rejected_qty,
-                "sold":      wh.sales_yesterday if wh else 0,
-                "missed":    wh.lost_sales_yesterday if wh else 0,
-                "stock":     wh.current_stock if wh else 0,
-                "cash":      round(obs.cash_balance, 2),
-                "reward":    round(obs.reward, 2),
-                "done":      obs.done,
-                "reasoning": strategic_plan.strip(),
-            }))
+                _log_step(
+                    step=step,
+                    action_str=action_str,
+                    reward=obs.reward,
+                    done=obs.done,
+                    error=error,
+                )
+        except Exception as exc:
+            error = str(exc)
+            logger.error("Episode error on %s: %s", task_id, exc, exc_info=True)
 
         score = env.get_grader_score()
-        report_card[task_id] = score
-        print("[END]", json.dumps({"task_id": task_id, "score": round(score, 4)}))
-
-    # Final summary
-    print("[END]", json.dumps({"report_card": report_card}))
+        success = score >= SUCCESS_THRESHOLD
+        _log_end(success=success, steps=step, score=score, rewards=rewards)
 
 
 if __name__ == "__main__":
