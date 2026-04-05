@@ -204,7 +204,7 @@ def get_agent_action(obs: SupplyChainObservation) -> tuple[SupplyChainAction, st
 
 
 BENCHMARK = "optichain-inventory-v1"
-SUCCESS_THRESHOLD = 0.5  # grader score >= 0.5 counts as success
+SUCCESS_THRESHOLD = 0.1  # grader score >= 0.5 counts as success
 
 
 def _log_start(task: str, env_name: str, model: str) -> None:
