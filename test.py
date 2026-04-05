@@ -24,10 +24,10 @@ def run_test():
 
     # 4. Take a step into Day 2
     print("\n=== AFTER STEPPING (DAY 2) ===")
-    obs, reward, done, info = env.step(dummy_action)
-    
-    print(f"Daily Net Cash Flow (Reward): ${reward}")
-    print(f"Is Episode Done?: {done}")
+    obs = env.step(dummy_action)
+
+    print(f"Daily Net Cash Flow (Reward): ${obs.reward}")
+    print(f"Is Episode Done?: {obs.done}")
     print("\nNew State:")
     print(obs.model_dump_json(indent=2))
 

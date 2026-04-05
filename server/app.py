@@ -9,7 +9,10 @@ Usage:
 
 import uvicorn
 import os
+import logging
 from fastapi import FastAPI, HTTPException
+
+logger = logging.getLogger(__name__)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -164,6 +167,7 @@ def demo_step_sim():
     try:
         action, reasoning = get_agent_action(current_obs)
     except Exception as exc:
+        logger.error("Agent error in demo/step_sim: %s", exc, exc_info=True)
         action = SupplyChainAction(orders=[])
         reasoning = f"Agent error: {exc}. Defaulting to zero orders."
 
