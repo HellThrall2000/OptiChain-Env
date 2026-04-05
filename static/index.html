@@ -1,3 +1,4 @@
+<!-- Final UI-->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -85,7 +86,7 @@
   .stat-val.warn { color: var(--orange); }
   .stat-val.accent { color: var(--accent); }
   .content { padding: 24px 28px; display: flex; flex-direction: column; gap: 20px; background: var(--bg); }
-  .metrics-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+  .metrics-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; }
   .metric-card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--r2); padding: 16px; position: relative; overflow: hidden; transition: border-color 0.2s; }
   .metric-card:hover { border-color: var(--border2); }
   .metric-card::after { content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 2px; background: transparent; transition: background 0.3s; }
@@ -158,6 +159,9 @@
   .report-card { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--r); padding: 14px; text-align: left; }
   .report-card-label { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text3); margin-bottom: 6px; }
   .report-card-val { font-family: var(--font-display); font-size: 20px; font-weight: 700; }
+  .report-card-val.green { color: var(--green); }
+  .report-card-val.red { color: var(--red); }
+  .report-card-val.accent { color: var(--accent); }
   .report-card-sub { font-size: 10px; color: var(--text3); margin-top: 3px; }
   .signal-banner { background: var(--bg3); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: var(--r); padding: 10px 14px; font-size: 11.5px; color: var(--text2); display: flex; align-items: center; gap: 10px; font-family: var(--font-mono); }
   .signal-icon { font-size: 14px; flex-shrink: 0; }
@@ -241,8 +245,8 @@
           <div class="stat-item"><span class="stat-key">Sold yesterday</span><span class="stat-val up" id="ss-sold">—</span></div>
           <div class="stat-item"><span class="stat-key">Lost sales</span><span class="stat-val down" id="ss-lost">—</span></div>
           <div class="stat-item"><span class="stat-key">Order placed</span><span class="stat-val" id="ss-order">—</span></div>
-          <div class="stat-item"><span class="stat-key">Total profit</span><span class="stat-val" id="ss-profit">$0</span></div>
-          <div class="stat-item"><span class="stat-key">Optimal baseline</span><span class="stat-val" id="ss-opt">$58,000</span></div>
+          <div class="stat-item"><span class="stat-key">Avg reward</span><span class="stat-val accent" id="ss-profit">0.00</span></div>
+          <div class="stat-item"><span class="stat-key">Grader score</span><span class="stat-val" id="ss-opt">0.00</span></div>
         </div>
       </div>
 
@@ -285,16 +289,22 @@
           <div class="progress-track"><div class="progress-fill" id="mc-day-prog" style="width:0%"></div></div>
         </div>
         <div class="metric-card" id="mc-score">
-          <div class="metric-label">Score</div>
+          <div class="metric-label">Step reward</div>
           <div class="metric-val" id="mc-score-val">—</div>
-          <div class="metric-sub">vs. optimal baseline</div>
+          <div class="metric-sub">Per-day newsvendor [0–1]</div>
           <div class="progress-track"><div class="progress-fill" id="mc-score-prog" style="width:0%"></div></div>
         </div>
         <div class="metric-card" id="mc-profit">
-          <div class="metric-label">Cumulative profit</div>
-          <div class="metric-val" id="mc-profit-val">$0</div>
-          <div class="metric-sub" id="mc-profit-sub">Net of costs & penalties</div>
+          <div class="metric-label">Avg reward</div>
+          <div class="metric-val" id="mc-profit-val">0.00</div>
+          <div class="metric-sub" id="mc-profit-sub">reward / days elapsed [0–1]</div>
           <div class="progress-track"><div class="progress-fill green" id="mc-profit-prog" style="width:0%"></div></div>
+        </div>
+        <div class="metric-card" id="mc-cumprofit">
+          <div class="metric-label">Cumulative profit</div>
+          <div class="metric-val" id="mc-cumprofit-val">$0</div>
+          <div class="metric-sub" id="mc-cumprofit-sub">Cash delta from start</div>
+          <div class="progress-track"><div class="progress-fill green" id="mc-cumprofit-prog" style="width:0%"></div></div>
         </div>
       </div>
 
@@ -414,24 +424,30 @@
 
       <div class="final-banner" id="final-banner">
         <div class="final-label">Simulation complete</div>
+        <div class="final-label">Grader score</div>
         <div class="final-score" id="final-score">—</div>
         <div class="final-label">/ 1.0</div>
         <div class="final-stars" id="final-stars"></div>
-        <div class="report-grid">
+        <div class="report-grid" style="grid-template-columns: repeat(4, 1fr);">
           <div class="report-card">
-            <div class="report-card-label">Total profit</div>
-            <div class="report-card-val" id="fr-profit">—</div>
-            <div class="report-card-sub">Net of all costs</div>
+            <div class="report-card-label">Avg reward</div>
+            <div class="report-card-val accent" id="fr-profit">—</div>
+            <div class="report-card-sub">total / 30 days [0–1]</div>
           </div>
           <div class="report-card">
-            <div class="report-card-label">Optimal baseline</div>
-            <div class="report-card-val" id="fr-opt">—</div>
-            <div class="report-card-sub">Max achievable</div>
+            <div class="report-card-label">Cumulative profit</div>
+            <div class="report-card-val" id="fr-cumprofit">—</div>
+            <div class="report-card-sub">Cash delta from start</div>
           </div>
           <div class="report-card">
-            <div class="report-card-label">Units lost</div>
+            <div class="report-card-label">Remaining stock</div>
             <div class="report-card-val" id="fr-lost">—</div>
-            <div class="report-card-sub">Unfilled demand</div>
+            <div class="report-card-sub">Unsold units (overage waste)</div>
+          </div>
+          <div class="report-card">
+            <div class="report-card-label">Cash balance</div>
+            <div class="report-card-val" id="fr-cash">—</div>
+            <div class="report-card-sub">End of simulation</div>
           </div>
         </div>
         <div class="final-detail" id="final-detail"></div>
@@ -447,17 +463,17 @@ const TASKS = {
   task_01_easy: {
     name: 'Stable Demand', cash: 30000, stock: 50,
     signal: 'Market signal: Demand is stable at exactly 10 units per day.', signalClass: '',
-    optProfit: 60000, shipping: 2, triggerLabel: 'stock < 20', opt: '$60,000'
+    shipping: 2, triggerLabel: 'stock < 20'
   },
   task_02_medium: {
     name: 'Holiday Spike', cash: 50000, stock: 20,
     signal: 'WARNING: Black Friday sale begins on Day 10. Demand will spike from 10 to 40 units per day.', signalClass: 'warn',
-    optProfit: 120000, shipping: 2, triggerLabel: 'pre-spike stock', opt: '$120,000'
+    shipping: 2, triggerLabel: 'pre-spike stock'
   },
   task_03_hard: {
     name: 'Supply Crisis', cash: 30000, stock: 30,
     signal: 'WARNING: Global shipping crisis. Standard 2-day shipping is delayed to 4 days. Expedited 1-day shipping costs $100 extra per unit.', signalClass: 'danger',
-    optProfit: 48000, shipping: 4, triggerLabel: 'expedite always', opt: '$48,000'
+    shipping: 4, triggerLabel: 'expedite always'
   }
 };
 
@@ -480,7 +496,8 @@ function initState(taskId) {
   const t = TASKS[taskId];
   S = {
     taskId, day: 1, cash: t.cash, stock: t.stock, pipeline: {},
-    totalProfit: 0, salesYday: 0, lostYday: 0, lastOrder: 0,
+    totalProfit: 0, stepReward: 0, totalReward: 0, graderScore: 0,
+    salesYday: 0, lostYday: 0, lastOrder: 0,
     history: { days:[], pnl:[], cash:[], stock:[] }
   };
   logCount = 0; totalLost = 0;
@@ -601,12 +618,14 @@ function applyObservation(obs, rewardDetail) {
   S.totalProfit = S.cash - TASKS[currentTask].cash;
   totalLost += S.lostYday;
 
-  // Use real backend grader score when available, else estimate
-  const score = (rewardDetail && rewardDetail.grader_score != null)
-    ? rewardDetail.grader_score
-    : (S.totalProfit > 0 ? Math.min(1, S.totalProfit / TASKS[currentTask].optProfit) : 0);
+  // Track newsvendor rewards from backend
+  if (rewardDetail) {
+    S.stepReward = rewardDetail.step_reward || 0;
+    S.totalReward = rewardDetail.total_reward || 0;
+    S.graderScore = rewardDetail.grader_score || 0;
+  }
 
-  updateMetrics(score, S.salesYday + S.lostYday, S.pipeline["1"] || 0);
+  updateMetrics(S.stepReward, S.salesYday + S.lostYday, S.pipeline["1"] || 0);
   updatePipeline();
 }
 
@@ -617,26 +636,30 @@ async function endSim() {
   document.getElementById('btn-pause').disabled = true;
   document.getElementById('pause-label').textContent = 'Pause';
 
-  let finalScore = 0;
+  let finalScore = S.graderScore;
   try {
     const res = await fetch(`${API}/grader`);
     const data = await res.json();
     finalScore = data.score;
   } catch(e) {
-    finalScore = S.totalProfit > 0 ? Math.min(1, S.totalProfit / TASKS[currentTask].optProfit) : 0;
+    // fallback to last known grader score from reward_detail
   }
 
   const t = TASKS[S.taskId];
   const stars = Math.round(finalScore * 5);
   const scoreEl = document.getElementById('final-score');
-  
+
   scoreEl.textContent = finalScore.toFixed(2);
-  scoreEl.style.color = finalScore > 0.7 ? 'var(--green)' : finalScore > 0.4 ? 'var(--orange)' : 'var(--red)';
+  scoreEl.style.color = finalScore >= 0.1 ? 'var(--green)' : finalScore >= 0.05 ? 'var(--orange)' : 'var(--red)';
   document.getElementById('final-stars').textContent = '★'.repeat(stars) + '☆'.repeat(5-stars);
-  document.getElementById('fr-profit').textContent = '$' + Math.round(S.totalProfit).toLocaleString();
-  document.getElementById('fr-opt').textContent = t.opt;
-  document.getElementById('fr-lost').textContent = totalLost + ' units';
-  document.getElementById('final-detail').textContent = `Task: ${t.name}  ·  Days: 30  ·  Official Hackathon Score: ${(finalScore*100).toFixed(1)}%`;
+  const finalAvg = S.totalReward / 30;
+  document.getElementById('fr-profit').textContent = finalAvg.toFixed(2);
+  const frCp = document.getElementById('fr-cumprofit');
+  frCp.textContent = (S.totalProfit >= 0 ? '+$' : '-$') + Math.abs(Math.round(S.totalProfit)).toLocaleString();
+  frCp.className = 'report-card-val ' + (S.totalProfit >= 0 ? 'green' : 'red');
+  document.getElementById('fr-lost').textContent = S.stock + ' units';
+  document.getElementById('fr-cash').textContent = '$' + Math.round(S.cash).toLocaleString();
+  document.getElementById('final-detail').textContent = `Task: ${t.name}  ·  Days: 30  ·  Grader: ${finalScore.toFixed(2)}  ·  Avg Reward: ${finalAvg.toFixed(2)}  ·  Profit: $${Math.round(S.totalProfit).toLocaleString()}`;
   document.getElementById('final-banner').className = 'final-banner visible';
 }
 
@@ -664,22 +687,32 @@ function updateMetrics(score, demand, arriving) {
 
   const sEl = document.getElementById('mc-score-val');
   sEl.textContent = score.toFixed(2);
-  sEl.className = 'metric-val ' + (score > 0.7 ? 'green' : score > 0.4 ? 'amber' : 'red');
+  sEl.className = 'metric-val ' + (score >= 0.1 ? 'green' : score >= 0.05 ? 'amber' : 'red');
   const sProg = document.getElementById('mc-score-prog');
   sProg.style.width = scorePct + '%';
-  sProg.className = 'progress-fill ' + (score > 0.7 ? 'green' : score > 0.4 ? '' : 'red');
-  document.getElementById('header-score').textContent = score.toFixed(2);
+  sProg.className = 'progress-fill ' + (score >= 0.1 ? 'green' : score >= 0.05 ? '' : 'red');
+  document.getElementById('header-score').textContent = S.graderScore.toFixed(2);
 
+  const daysElapsed = Math.max(1, S.day - 1);
+  const avgReward = S.totalReward / daysElapsed;
   const profEl = document.getElementById('mc-profit-val');
-  profEl.textContent = '$' + Math.round(S.totalProfit).toLocaleString();
-  profEl.className = 'metric-val ' + (S.totalProfit > 0 ? 'green' : 'red');
-  document.getElementById('mc-profit-prog').style.width = Math.max(0, Math.min(100, (S.totalProfit / t.optProfit) * 100)) + '%';
+  profEl.textContent = avgReward.toFixed(2);
+  profEl.className = 'metric-val ' + (avgReward >= 0.1 ? 'green' : avgReward >= 0.05 ? 'amber' : 'red');
+  document.getElementById('mc-profit-prog').style.width = (avgReward * 100) + '%';
+
+  const cpEl = document.getElementById('mc-cumprofit-val');
+  cpEl.textContent = (S.totalProfit >= 0 ? '+$' : '-$') + Math.abs(Math.round(S.totalProfit)).toLocaleString();
+  cpEl.className = 'metric-val ' + (S.totalProfit >= 0 ? 'green' : 'red');
+  const cpProg = document.getElementById('mc-cumprofit-prog');
+  cpProg.style.width = Math.min(100, Math.abs(S.totalProfit) / (t.cash * 0.5) * 100) + '%';
+  cpProg.className = 'progress-fill ' + (S.totalProfit >= 0 ? 'green' : 'red');
 
   document.getElementById('ss-cash').textContent = '$' + Math.round(S.cash).toLocaleString();
   document.getElementById('ss-stock').textContent = S.stock;
   document.getElementById('ss-sold').textContent = S.salesYday;
   document.getElementById('ss-lost').textContent = S.lostYday;
-  document.getElementById('ss-profit').textContent = '$' + Math.round(S.totalProfit).toLocaleString();
+  document.getElementById('ss-profit').textContent = avgReward.toFixed(2);
+  document.getElementById('ss-opt').textContent = score.toFixed(2);
 
   document.getElementById('yday-sold').textContent = S.salesYday;
   document.getElementById('yday-lost').textContent = S.lostYday;
@@ -847,7 +880,6 @@ function selectTask(taskId, el) {
   const sig = document.getElementById('signal-banner');
   sig.className = 'signal-banner ' + t.signalClass;
   document.getElementById('signal-text').textContent = t.signal;
-  document.getElementById('ss-opt').textContent = t.opt;
   document.getElementById('reorder-trigger').textContent = t.triggerLabel;
   document.getElementById('ss-shipping').textContent = taskId === 'task_03_hard' ? '4 days (crisis)' : '2 days';
   resetSim();
@@ -880,10 +912,11 @@ function resetSim() {
   document.getElementById('mc-stock-val').textContent = t.stock; document.getElementById('mc-stock-val').className = 'metric-val green';
   document.getElementById('mc-day-val').innerHTML = '0 <span style="font-size:16px;color:var(--text3)">/30</span>'; document.getElementById('mc-day-prog').style.width = '0%';
   document.getElementById('mc-score-val').textContent = '—'; document.getElementById('mc-score-prog').style.width = '0%';
-  document.getElementById('mc-profit-val').textContent = '$0'; document.getElementById('mc-profit-val').className = 'metric-val'; document.getElementById('mc-profit-prog').style.width = '0%';
+  document.getElementById('mc-profit-val').textContent = '0.00'; document.getElementById('mc-profit-val').className = 'metric-val'; document.getElementById('mc-profit-prog').style.width = '0%';
+  document.getElementById('mc-cumprofit-val').textContent = '$0'; document.getElementById('mc-cumprofit-val').className = 'metric-val'; document.getElementById('mc-cumprofit-prog').style.width = '0%';
   document.getElementById('header-score').textContent = '—'; document.getElementById('ss-cash').textContent = '$' + t.cash.toLocaleString();
   document.getElementById('ss-stock').textContent = t.stock; document.getElementById('ss-sold').textContent = '—'; document.getElementById('ss-lost').textContent = '—';
-  document.getElementById('ss-order').textContent = '—'; document.getElementById('ss-profit').textContent = '$0';
+  document.getElementById('ss-order').textContent = '—'; document.getElementById('ss-profit').textContent = '0.00'; document.getElementById('ss-opt').textContent = '0.00';
   document.getElementById('yday-sold').textContent = '—'; document.getElementById('yday-lost').textContent = '—'; document.getElementById('yday-order').textContent = '—';
   
   for (let i=1;i<=4;i++) { document.getElementById('pq-'+i).textContent='0'; document.getElementById('pc-'+i).className='pipe-cell'; }
