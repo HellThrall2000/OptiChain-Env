@@ -9,6 +9,48 @@ from env.schemas import (
     ProductStatus,
 )
 
+# ---------------------------------------------------------------------------
+# Task configuration constants
+# ---------------------------------------------------------------------------
+_PRODUCT_CATALOG = {
+    "SKU-LAPTOP": {
+        "margin": 400.0,
+        "holding_cost": 2.0,
+        "penalty": 100.0,
+        "order_cost": 800.0,
+    }
+}
+
+_TASK_CONFIGS = {
+    "task_01_easy": {
+        "cash_balance": 30000.0,
+        "initial_inventory": {"SKU-LAPTOP": 50},
+        "market_signal": "Demand is stable at exactly 10 units per day.",
+    },
+    "task_02_medium": {
+        "cash_balance": 50000.0,
+        "initial_inventory": {"SKU-LAPTOP": 20},
+        "market_signal": (
+            "WARNING: Black Friday sale begins on Day 10. "
+            "Demand will spike from 10 to 40 units per day."
+        ),
+    },
+    "task_03_hard": {
+        "cash_balance": 30000.0,
+        "initial_inventory": {"SKU-LAPTOP": 30},
+        "market_signal": (
+            "WARNING: Global shipping crisis. Standard 2-day shipping is delayed to 4 days. "
+            "Expedited 1-day shipping costs $100 extra per unit."
+        ),
+    },
+}
+
+# Shipping / cost constants
+STANDARD_LEAD_TIME = 2
+EXPEDITED_LEAD_TIME = 1
+CRISIS_LEAD_TIME = 4
+EXPEDITE_SURCHARGE = 100  # extra cost per unit for expedited shipping
+
 
 class SupplyChainEnv(Environment):
     """
@@ -33,17 +75,43 @@ class SupplyChainEnv(Environment):
         self.catalog: dict = {}
         self.market_signal: str = ""
         self.total_reward: float = 0.0  # cumulative sum of per-step newsvendor rewards
+        self.last_accepted_qty: int = 0
+        self.last_rejected_qty: int = 0
         # OpenEnv State container (tracks episode metadata)
         self._state = SupplyChainState(
             episode_id=str(uuid.uuid4()),
             step_count=0,
         )
 
-    def reset(self, task_id: str = "task_01_easy") -> SupplyChainObservation:
-        """Reset the environment and load a specific task. Returns initial observation."""
+    def reset(self, task_id: str = "task_01_easy", seed: int | None = None) -> SupplyChainObservation:
+        """Reset the environment and load a specific task. Returns initial observation.
+
+        Args:
+            task_id: One of 'task_01_easy', 'task_02_medium', 'task_03_hard'.
+            seed: Optional RNG seed for reproducible demand simulation.
+        """
+        if task_id not in _TASK_CONFIGS:
+            raise ValueError(f"Unknown task_id '{task_id}'. Valid: {sorted(_TASK_CONFIGS)}")
+
+        if seed is not None:
+            random.seed(seed)
+
+        cfg = _TASK_CONFIGS[task_id]
         self.current_task_id = task_id
         self.current_day = 1
         self.total_reward = 0.0
+        self.last_accepted_qty = 0
+        self.last_rejected_qty = 0
+
+        self.catalog = {pid: dict(props) for pid, props in _PRODUCT_CATALOG.items()}
+        self.cash_balance = cfg["cash_balance"]
+        self.inventory = dict(cfg["initial_inventory"])
+        self.shipment_pipeline = {pid: {1: 0, 2: 0, 3: 0, 4: 0} for pid in self.catalog}
+        self.history = {
+            "sales_yesterday": {pid: 0 for pid in self.catalog},
+            "lost_sales_yesterday": {pid: 0 for pid in self.catalog},
+        }
+        self.market_signal = cfg["market_signal"]
 
         # Reset the OpenEnv State container
         self._state = SupplyChainState(
@@ -51,45 +119,6 @@ class SupplyChainEnv(Environment):
             step_count=0,
             current_task_id=task_id,
         )
-
-        # ==========================================
-        # TASK 1: EASY (Stable Demand)
-        # ==========================================
-        if task_id == "task_01_easy":
-            self.cash_balance = 30000.0
-            self.catalog = {
-                "SKU-LAPTOP": {"margin": 400.0, "holding_cost": 2.0, "penalty": 100.0, "order_cost": 800.0}
-            }
-            self.inventory = {"SKU-LAPTOP": 50}
-            self.shipment_pipeline = {"SKU-LAPTOP": {1: 0, 2: 0, 3: 0, 4: 0}}
-            self.history = {"sales_yesterday": {"SKU-LAPTOP": 0}, "lost_sales_yesterday": {"SKU-LAPTOP": 0}}
-            self.market_signal = "Demand is stable at exactly 10 units per day."
-
-        # ==========================================
-        # TASK 2: MEDIUM (Holiday Demand Spike)
-        # ==========================================
-        elif task_id == "task_02_medium":
-            self.cash_balance = 50000.0
-            self.catalog = {
-                "SKU-LAPTOP": {"margin": 400.0, "holding_cost": 2.0, "penalty": 100.0, "order_cost": 800.0}
-            }
-            self.inventory = {"SKU-LAPTOP": 20}
-            self.shipment_pipeline = {"SKU-LAPTOP": {1: 0, 2: 0, 3: 0, 4: 0}}
-            self.history = {"sales_yesterday": {"SKU-LAPTOP": 0}, "lost_sales_yesterday": {"SKU-LAPTOP": 0}}
-            self.market_signal = "WARNING: Black Friday sale begins on Day 10. Demand will spike from 10 to 40 units per day."
-
-        # ==========================================
-        # TASK 3: HARD (Supply Shock / Delays)
-        # ==========================================
-        elif task_id == "task_03_hard":
-            self.cash_balance = 30000.0
-            self.catalog = {
-                "SKU-LAPTOP": {"margin": 400.0, "holding_cost": 2.0, "penalty": 100.0, "order_cost": 800.0}
-            }
-            self.inventory = {"SKU-LAPTOP": 30}
-            self.shipment_pipeline = {"SKU-LAPTOP": {1: 0, 2: 0, 3: 0, 4: 0}}
-            self.history = {"sales_yesterday": {"SKU-LAPTOP": 0}, "lost_sales_yesterday": {"SKU-LAPTOP": 0}}
-            self.market_signal = "WARNING: Global shipping crisis. Standard 2-day shipping is delayed to 4 days. Expedited 1-day shipping costs $100 extra per unit."
 
         return self._build_observation(reward=0.0, done=False)
 
@@ -117,13 +146,12 @@ class SupplyChainEnv(Environment):
 
             # 4-day standard shipping during crisis, 2-day otherwise
             if self.current_task_id == "task_03_hard" and not order.expedite_shipping:
-                delivery_days = 4
+                delivery_days = CRISIS_LEAD_TIME
             else:
-                delivery_days = 1 if order.expedite_shipping else 2
+                delivery_days = EXPEDITED_LEAD_TIME if order.expedite_shipping else STANDARD_LEAD_TIME
 
-            # Expedite shipping costs $100 extra per unit
             if order.expedite_shipping:
-                cost += order.quantity * 100
+                cost += order.quantity * EXPEDITE_SURCHARGE
 
             if self.cash_balance >= cost:
                 self.cash_balance -= cost
@@ -228,8 +256,8 @@ class SupplyChainEnv(Environment):
             cash_balance=self.cash_balance,
             warehouse_status=warehouse,
             market_trend_signal=self.market_signal,
-            last_order_accepted=getattr(self, "last_accepted_qty", 0),
-            last_order_rejected=getattr(self, "last_rejected_qty", 0),
+            last_order_accepted=self.last_accepted_qty,
+            last_order_rejected=self.last_rejected_qty,
             reward=reward,
             done=done,
         )
