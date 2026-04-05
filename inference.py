@@ -35,7 +35,20 @@ ANALYST_TEMPERATURE  = 0.1   # slight randomness for strategic reasoning
 EXECUTOR_TEMPERATURE = 0.0   # deterministic JSON formatting
 MAX_TOKENS           = 512   # cap token usage per call
 
-client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+# Lazy client — created on first LLM call so the server can boot
+# before API secrets are injected (e.g. HF Space cold start).
+_client: OpenAI | None = None
+
+
+def _get_client() -> OpenAI:
+    """Return a cached OpenAI client, re-reading env vars on first call."""
+    global _client
+    if _client is None:
+        _client = OpenAI(
+            base_url=os.environ.get("API_BASE_URL") or API_BASE_URL,
+            api_key=os.environ.get("HF_TOKEN") or os.environ.get("API_KEY") or API_KEY,
+        )
+    return _client
 # =================================================================
 
 
@@ -117,7 +130,7 @@ def get_agent_action(obs: SupplyChainObservation) -> tuple[SupplyChainAction, st
     )
 
     try:
-        resp = client.chat.completions.create(
+        resp = _get_client().chat.completions.create(
             model=MODEL_NAME,
             messages=[
                 {"role": "system", "content": analyst_prompt},
@@ -127,7 +140,7 @@ def get_agent_action(obs: SupplyChainObservation) -> tuple[SupplyChainAction, st
             max_tokens=MAX_TOKENS,
             timeout=30,
         )
-        strategic_plan = resp.choices[0].message.content
+        strategic_plan = resp.choices[0].message.content or ""
     except Exception as exc:
         logger.error("Analyst agent failed: %s", exc, exc_info=True)
         strategic_plan = f"Analyst unavailable ({exc}).\nORDER_QUANTITY: 0\nEXPEDITE: false"
@@ -148,7 +161,7 @@ def get_agent_action(obs: SupplyChainObservation) -> tuple[SupplyChainAction, st
     )
 
     try:
-        resp = client.chat.completions.create(
+        resp = _get_client().chat.completions.create(
             model=MODEL_NAME,
             messages=[
                 {"role": "system", "content": executor_prompt},
@@ -159,7 +172,7 @@ def get_agent_action(obs: SupplyChainObservation) -> tuple[SupplyChainAction, st
             max_tokens=MAX_TOKENS,
             timeout=30,
         )
-        action = SupplyChainAction.model_validate_json(resp.choices[0].message.content)
+        action = SupplyChainAction.model_validate_json(resp.choices[0].message.content or "{}")
     except Exception as exc:
         logger.error("Executor agent failed: %s", exc, exc_info=True)
         action = SupplyChainAction(orders=[])
@@ -205,7 +218,7 @@ def get_agent_action(obs: SupplyChainObservation) -> tuple[SupplyChainAction, st
             ))
     action = SupplyChainAction(orders=clipped_orders)
 
-    return action, strategic_plan
+    return action, strategic_plan or ""
 
 
 BENCHMARK = "optichain-inventory-v1"
