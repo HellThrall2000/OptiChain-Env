@@ -462,7 +462,10 @@ const TASKS = {
 };
 
 // ─── STATE ───────────────────────────────────────────────────
-const API = 'http://localhost:8000'; // Update for HuggingFace deployment
+// Auto-detect backend: same origin on HF Spaces, localhost for local dev
+const API = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+  ? `http://${window.location.hostname}:${window.location.port || 7860}`
+  : window.location.origin;
 let S = {};
 let paused = false;
 let running = false;
