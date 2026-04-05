@@ -206,7 +206,7 @@
         </div>
         <div class="task-card" data-task="task_03_hard" onclick="selectTask('task_03_hard', this)">
           <div class="task-card-header"><div class="task-name">Supply Crisis</div><div class="diff-badge diff-hard">Hard</div></div>
-          <div class="task-meta"><strong>$30,000</strong> starting cash<br><strong>10-day</strong> standard shipping delay</div>
+          <div class="task-meta"><strong>$30,000</strong> starting cash<br><strong>4-day</strong> standard shipping delay</div>
         </div>
       </div>
 
@@ -251,10 +251,10 @@
         <div class="stat-strip">
           <div class="stat-item"><span class="stat-key">Product</span><span class="stat-val">SKU-LAPTOP</span></div>
           <div class="stat-item"><span class="stat-key">Cost/unit</span><span class="stat-val">$800</span></div>
-          <div class="stat-item"><span class="stat-key">Margin/unit</span><span class="stat-val up">$200</span></div>
+          <div class="stat-item"><span class="stat-key">Margin/unit</span><span class="stat-val up">$400</span></div>
           <div class="stat-item"><span class="stat-key">Holding cost</span><span class="stat-val warn">$2/unit/day</span></div>
           <div class="stat-item"><span class="stat-key">Stockout penalty</span><span class="stat-val down">$100/unit</span></div>
-          <div class="stat-item"><span class="stat-key">Std. shipping</span><span class="stat-val" id="ss-shipping">3 days</span></div>
+          <div class="stat-item"><span class="stat-key">Std. shipping</span><span class="stat-val" id="ss-shipping">2 days</span></div>
         </div>
       </div>
     </aside>
@@ -447,17 +447,17 @@ const TASKS = {
   task_01_easy: {
     name: 'Stable Demand', cash: 30000, stock: 50,
     signal: 'Market signal: Demand is stable at exactly 10 units per day.', signalClass: '',
-    optProfit: 58000, shipping: 3, triggerLabel: 'stock < 20', opt: '$58,000'
+    optProfit: 60000, shipping: 2, triggerLabel: 'stock < 20', opt: '$60,000'
   },
   task_02_medium: {
     name: 'Holiday Spike', cash: 50000, stock: 20,
-    signal: 'WARNING: Black Friday begins day 10. Demand spikes from 10 → 40 units/day through day 17.', signalClass: 'warn',
-    optProfit: 110000, shipping: 3, triggerLabel: 'pre-spike stock', opt: '$110,000'
+    signal: 'WARNING: Black Friday sale begins on Day 10. Demand will spike from 10 to 40 units per day.', signalClass: 'warn',
+    optProfit: 120000, shipping: 2, triggerLabel: 'pre-spike stock', opt: '$120,000'
   },
   task_03_hard: {
     name: 'Supply Crisis', cash: 30000, stock: 30,
-    signal: 'WARNING: Global shipping crisis. Standard 3-day shipping now delayed to 10 days. Expedited (1-day) is double cost but guaranteed.', signalClass: 'danger',
-    optProfit: 45000, shipping: 10, triggerLabel: 'expedite always', opt: '$45,000'
+    signal: 'WARNING: Global shipping crisis. Standard 2-day shipping is delayed to 4 days. Expedited 1-day shipping costs $100 extra per unit.', signalClass: 'danger',
+    optProfit: 48000, shipping: 4, triggerLabel: 'expedite always', opt: '$48,000'
   }
 };
 
@@ -528,30 +528,36 @@ async function runLoop() {
 
   while (running && !paused) {
     try {
+      // Show thinking state while waiting for LLM
+      setThinking(true);
+
       // 1. Call the AI Bridge Endpoint (LLM decides action, then steps env)
       const res = await fetch(`${API}/demo/step_sim`, { method: 'POST' });
       const data = await res.json();
-      const { observation, reward, done, action_taken, reasoning } = data;
+      const { observation, reward, done, action_taken, reasoning, accepted, rejected, reward_detail } = data;
 
-      // CRITICAL FIX: If user clicked 'Reset' while the LLM was thinking, abort immediately!
-      if (!running) break; 
+      // Abort if user reset while LLM was thinking
+      if (!running) break;
 
-      // 2. Process Backend State
-      applyObservation(observation);
-      updateAgents(reasoning, JSON.stringify(action_taken, null, 2));
+      // 2. Calculate real cash-delta P&L (not the normalized reward score)
+      const prevCash = S.cash;
+      applyObservation(observation, reward_detail);
+      const cashDelta = S.cash - prevCash;
 
-      // 3. Track History for Charts
+      // 3. Update agent panels with LLM output
+      updateAgents(reasoning, JSON.stringify(action_taken, null, 2), accepted, rejected);
+      setThinking(false);
+
+      // 4. Track history for charts — P&L = real cash delta, not reward score
       S.history.days.push('Day ' + (observation.current_day - 1));
-      S.history.pnl.push(reward);
+      S.history.pnl.push(cashDelta);
       S.history.cash.push(observation.cash_balance);
       S.history.stock.push(observation.warehouse_status[0].current_stock);
       updateCharts();
 
-      // 4. Extract order quantity for the Log
-      let orderQty = 0;
-      if (action_taken && action_taken.orders && action_taken.orders.length > 0) {
-        orderQty = action_taken.orders[0].quantity;
-      }
+      // 5. Log entry — show accepted qty, real cash delta
+      const orderQty = (accepted != null) ? accepted
+        : (action_taken && action_taken.orders && action_taken.orders.length > 0 ? action_taken.orders[0].quantity : 0);
 
       appendLog(
         observation.current_day - 1,
@@ -559,31 +565,31 @@ async function runLoop() {
         observation.warehouse_status[0].sales_yesterday,
         observation.warehouse_status[0].lost_sales_yesterday,
         orderQty,
-        reward,
+        cashDelta,
         observation.cash_balance
       );
       updateDayStrip(observation.current_day - 1);
 
-      // Stop exactly at day 30 (Hard Stop)
+      // Stop exactly at day 30
       if (done || observation.current_day > MAX_DAYS) {
         endSim();
         break;
       }
 
-      // Wait for the UI speed setting BEFORE asking the LLM for the next day
       await new Promise(resolve => setTimeout(resolve, getInterval()));
 
     } catch(e) {
       console.error(e);
+      setThinking(false);
       pauseSim();
-      alert("Connection Error. Check your terminal running main.py for details.");
+      alert("Connection Error. Check your backend for details.");
       break;
     }
   }
   simLoopActive = false;
 }
 
-function applyObservation(obs) {
+function applyObservation(obs, rewardDetail) {
   const wh = obs.warehouse_status[0];
   S.day      = obs.current_day;
   S.cash     = obs.cash_balance;
@@ -595,7 +601,11 @@ function applyObservation(obs) {
   S.totalProfit = S.cash - TASKS[currentTask].cash;
   totalLost += S.lostYday;
 
-  const score = S.totalProfit > 0 ? Math.min(1, S.totalProfit / TASKS[currentTask].optProfit) : 0;
+  // Use real backend grader score when available, else estimate
+  const score = (rewardDetail && rewardDetail.grader_score != null)
+    ? rewardDetail.grader_score
+    : (S.totalProfit > 0 ? Math.min(1, S.totalProfit / TASKS[currentTask].optProfit) : 0);
+
   updateMetrics(score, S.salesYday + S.lostYday, S.pipeline["1"] || 0);
   updatePipeline();
 }
@@ -689,26 +699,39 @@ function updatePipeline() {
   document.getElementById('pc-5p').className = 'pipe-cell' + (sum5p > 0 ? ' has-stock' : '');
 }
 
-function updateAgents(reasoning, execJson) {
+function updateAgents(reasoning, execJson, accepted, rejected) {
   const aEl = document.getElementById('analyst-text');
-  aEl.textContent = reasoning;
+  aEl.textContent = reasoning || 'No reasoning returned.';
   aEl.className = 'agent-text';
 
   const eEl = document.getElementById('exec-text');
-  eEl.textContent = `Day ${S.day-1} action dispatched to Engine.`;
+  const acceptedStr = (accepted != null) ? `${accepted} units accepted` : '';
+  const rejectedStr = (rejected != null && rejected > 0) ? `, ${rejected} rejected (insufficient funds)` : '';
+  eEl.textContent = `Day ${S.day-1} action dispatched.${acceptedStr ? ' ' + acceptedStr + rejectedStr : ''}`;
   eEl.className = 'agent-text';
 
   const jsonWrap = document.getElementById('json-output-wrap');
   const jsonEl = document.getElementById('json-output');
   jsonEl.textContent = execJson;
   jsonWrap.style.display = 'block';
-  
-  try {
-     const parsed = JSON.parse(execJson);
-     const qty = parsed.orders && parsed.orders.length > 0 ? parsed.orders[0].quantity : 0;
-     document.getElementById('ss-order').textContent = qty;
-     document.getElementById('yday-order').textContent = qty;
-  } catch(e) {}
+
+  // Update order qty from accepted (authoritative) or parsed JSON
+  const qty = (accepted != null) ? accepted : (() => {
+    try { const p = JSON.parse(execJson); return p.orders && p.orders.length > 0 ? p.orders[0].quantity : 0; } catch(e) { return 0; }
+  })();
+  document.getElementById('ss-order').textContent = qty > 0 ? qty : '—';
+  document.getElementById('yday-order').textContent = qty > 0 ? qty : '—';
+}
+
+function setThinking(on) {
+  const aEl = document.getElementById('analyst-text');
+  if (on) {
+    aEl.innerHTML = '<span class="thinking-dots">Analyst reasoning</span>';
+    aEl.className = 'agent-text thinking';
+    const eEl = document.getElementById('exec-text');
+    eEl.textContent = 'Waiting for Analyst...';
+    eEl.className = 'agent-text thinking';
+  }
 }
 
 function updateCharts() {
@@ -826,7 +849,7 @@ function selectTask(taskId, el) {
   document.getElementById('signal-text').textContent = t.signal;
   document.getElementById('ss-opt').textContent = t.opt;
   document.getElementById('reorder-trigger').textContent = t.triggerLabel;
-  document.getElementById('ss-shipping').textContent = taskId === 'task_03_hard' ? '10 days (crisis)' : '3 days';
+  document.getElementById('ss-shipping').textContent = taskId === 'task_03_hard' ? '4 days (crisis)' : '2 days';
   resetSim();
 }
 
