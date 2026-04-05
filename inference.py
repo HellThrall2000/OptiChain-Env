@@ -9,10 +9,13 @@ MANDATORY HACKATHON CONFIGURATION
 
 import os
 import json
+import logging
 from dotenv import load_dotenv
 from openai import OpenAI
-from env.core import SupplyChainEnv
-from env.schemas import SupplyChainAction, SupplyChainObservation
+from env.core import SupplyChainEnv, EXPEDITE_SURCHARGE
+from env.schemas import SupplyChainAction, SupplyChainObservation, PurchaseOrder
+
+logger = logging.getLogger(__name__)
 
 # Load environment variables for local testing
 load_dotenv()
@@ -118,10 +121,12 @@ def get_agent_action(obs: SupplyChainObservation) -> tuple[SupplyChainAction, st
                 {"role": "system", "content": analyst_prompt},
                 {"role": "user",   "content": analyst_context},
             ],
-            temperature=0.1, # Slight temperature allows predictive flexibility
+            temperature=0.1,  # Slight temperature allows predictive flexibility
+            timeout=30,
         )
         strategic_plan = resp.choices[0].message.content
     except Exception as exc:
+        logger.error("Analyst agent failed: %s", exc, exc_info=True)
         strategic_plan = f"Analyst unavailable ({exc}).\nORDER_QUANTITY: 0\nEXPEDITE: false"
 
     # =========================================================
@@ -148,20 +153,22 @@ def get_agent_action(obs: SupplyChainObservation) -> tuple[SupplyChainAction, st
             ],
             response_format={"type": "json_object"},
             temperature=0.0,
+            timeout=30,
         )
         action = SupplyChainAction.model_validate_json(resp.choices[0].message.content)
-    except Exception:
+    except Exception as exc:
+        logger.error("Executor agent failed: %s", exc, exc_info=True)
         action = SupplyChainAction(orders=[])
 
     # =================================================================
     # PYTHON GUARDRAILS — clip LLM output to what's actually affordable
     # Prevents ghost orders and logic-tag dissonance from mattering.
     # =================================================================
-    from env.schemas import PurchaseOrder
     clipped_orders = []
     remaining_cash = obs.cash_balance
     for order in action.orders:
-        unit_cost = 900 if order.expedite_shipping else 800
+        # SKU-LAPTOP order cost is $800; expedited adds EXPEDITE_SURCHARGE per unit
+        unit_cost = (800 + EXPEDITE_SURCHARGE) if order.expedite_shipping else 800
         max_affordable = int(remaining_cash // unit_cost) if remaining_cash > 0 else 0
         qty = min(order.quantity, max_affordable)
         if qty > 0:
