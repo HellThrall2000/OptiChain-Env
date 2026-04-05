@@ -34,6 +34,9 @@ class SupplyChainObservation(Observation):
     cash_balance: float
     warehouse_status: List[ProductStatus]
     market_trend_signal: str
+    # Order feedback — lets the agent know if its last order went through
+    last_order_accepted: int = Field(0, description="Units accepted by the env last step")
+    last_order_rejected: int = Field(0, description="Units rejected (insufficient funds) last step")
     # OpenEnv convention: reward and done are part of the observation
     reward: float = Field(0.0, description="Reward received from the last step")
     done: bool = Field(False, description="Whether the episode has ended")

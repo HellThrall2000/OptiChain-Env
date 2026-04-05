@@ -7,6 +7,7 @@ Usage:
     uvicorn server.app:app --host 0.0.0.0 --port 7860
 """
 
+import uvicorn
 import os
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -180,7 +181,6 @@ def demo_step_sim():
 # Dev entry point
 # ---------------------------------------------------------------------------
 def main():
-    import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=7860)
 
 
