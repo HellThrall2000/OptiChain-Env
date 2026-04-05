@@ -26,9 +26,9 @@ load_dotenv()
 API_BASE_URL = os.environ.get("API_BASE_URL") or "http://localhost:11434/v1"
 API_KEY      = (os.environ.get("HF_TOKEN")
                 or os.environ.get("API_KEY")
-                or os.environ.get("GROQ_API_KEY")
+                #or os.environ.get("GROQ_API_KEY")
                 or "ollama")
-MODEL_NAME   = os.environ.get("MODEL_NAME") or "llama3.2:3b"
+MODEL_NAME   = os.environ.get("MODEL_NAME") or "llama3.1:8b"
 
 client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
 # =================================================================
@@ -60,29 +60,50 @@ def get_agent_action(obs: SupplyChainObservation) -> tuple[SupplyChainAction, st
     # 🤖 AGENT 1: THE ANALYST (Strategic Decision Maker)
     # =========================================================
     analyst_prompt = (
-        "You are an elite AI Supply Chain Manager. Your goal is to maximize total profit over a 30-day period.\n\n"
-        "=== UNIT ECONOMICS ===\n"
-        "- Standard Order: $800 cost, takes 2 days (4 days during crisis).\n"
-        "- Expedited Order: $900 cost, takes 1 day.\n"
-        "- Revenue per sale: $1,200\n"
-        "- Holding cost: $2 / unit / day\n"
-        "- Stockout penalty: $100 / missed sale\n\n"
-        "=== STRATEGY GUIDELINES ===\n"
-        "1. PREDICTIVE DEMAND: Demand has random daily fluctuations. Analyze 'Yesterday's Performance' to gauge the current volume and maintain a safety buffer.\n"
-        "2. PIPELINE AWARENESS: Check your 'Inventory Position' (Stock + Incoming). Do you have enough to cover the lead time?\n"
-        "3. BUDGET MATH: You must calculate affordability yourself! Do NOT order more units than your Cash Balance can afford (Qty * Cost).\n"
-        "4. ADAPTABILITY: If a spike is coming, pre-order heavily. If a shipping crisis is active, use expedited shipping to avoid stockout penalties.\n"
-        "5. BURN-DOWN: As you approach Day 30, burn down your stock to 0. Do not order stock that will arrive after the simulation ends.\n\n"
-        "You must output a short paragraph of reasoning, followed EXACTLY by these two lines at the very end:\n"
+        "You are an Elite Supply Chain Optimizer. Your performance is graded on 'Inventory Efficiency' (Newsvendor Logic).\n\n"
+        
+        "=== THE GOLDEN RULES FOR A 1.0 SCORE ===\n"
+        "1. OVERAGE IS FAILURE: Ending any day with unsold stock kills your score. Aim for JIT (Just-In-Time) delivery.\n"
+        "2. UNDERAGE IS FAILURE: Missing a customer sale kills your score. Maintain a minimal safety buffer.\n"
+        "3. PIPELINE MATH: Your 'Total Inventory Position' = Current Stock + All units in Pipeline.\n"
+        "4. TARGET FORMULA: Aim for a Total Inventory Position = (Predicted Daily Demand) * (Lead Time + 1).\n\n"
+
+        "=== UNIT ECONOMICS & LEAD TIMES ===\n"
+        "- Standard: $800 cost | 2-day lead time (4 days during crisis).\n"
+        "- Expedited: $900 cost | 1-day lead time.\n"
+        "- Holding Cost: $2/unit/day | Stockout Penalty: $100/unit.\n\n"
+
+        "=== STRATEGIC MANDATES ===\n"
+        "- PREDICTIVE BUFFER: Analyze 'Yesterday's Performance'. If demand was 12, assume today is 12. Add a +2 unit safety buffer only.\n"
+        "- BUDGET CHECK: You MUST multiply (Order Quantity * Unit Cost). This result MUST be less than your current Cash Balance.\n"
+        "- CRISIS ADAPTATION: During a shipping crisis (4-day delay), use Expedited (1-day) to stay lean and responsive.\n"
+        "- HORIZON AWARENESS: The simulation ends on Day 30. Any stock arriving after Day 30 is a total financial loss and results in a 0.0 efficiency score. "
+        "Calculate 'Days Remaining' vs 'Lead Time' to decide when to stop ordering. Your goal is to have EXACTLY zero stock on Day 30.\n\n"
+
+        "=== REQUIRED OUTPUT FORMAT ===\n"
+        "Begin with a 'Step-by-Step Math' paragraph: Calculate Predicted Demand, Current Inventory Position, and identify if an order will arrive before Day 30.\n"
+        "End your response with these EXACT tags:\n"
         "ORDER_QUANTITY: [number]\n"
         "EXPEDITE: [true/false]"
     )
     
+    # Build order feedback line so the LLM knows if its last order was rejected
+    if obs.last_order_rejected > 0:
+        order_feedback = (
+            f"LAST ORDER: REJECTED {obs.last_order_rejected} units (insufficient funds). "
+            f"Only {obs.last_order_accepted} units were accepted. Reduce your order size!"
+        )
+    elif obs.last_order_accepted > 0:
+        order_feedback = f"LAST ORDER: Accepted {obs.last_order_accepted} units."
+    else:
+        order_feedback = "LAST ORDER: No order placed."
+
     analyst_context = (
         f"=== CURRENT STATUS ===\n"
         f"DAY: {obs.current_day} of {obs.total_days} ({days_remaining} days remaining)\n"
         f"MARKET SIGNAL: {obs.market_trend_signal}\n"
         f"YESTERDAY'S PERFORMANCE: Sold {sales_yesterday}, Missed {lost_yesterday} sales.\n"
+        f"{order_feedback}\n"
         f"CASH BALANCE: ${obs.cash_balance:.2f}\n"
         f"CURRENT STOCK: {current_stock} units\n"
         f"PIPELINE: {pipeline_str}\n"
@@ -132,6 +153,26 @@ def get_agent_action(obs: SupplyChainObservation) -> tuple[SupplyChainAction, st
     except Exception:
         action = SupplyChainAction(orders=[])
 
+    # =================================================================
+    # PYTHON GUARDRAILS — clip LLM output to what's actually affordable
+    # Prevents ghost orders and logic-tag dissonance from mattering.
+    # =================================================================
+    from env.schemas import PurchaseOrder
+    clipped_orders = []
+    remaining_cash = obs.cash_balance
+    for order in action.orders:
+        unit_cost = 900 if order.expedite_shipping else 800
+        max_affordable = int(remaining_cash // unit_cost) if remaining_cash > 0 else 0
+        qty = min(order.quantity, max_affordable)
+        if qty > 0:
+            remaining_cash -= qty * unit_cost
+            clipped_orders.append(PurchaseOrder(
+                product_id=order.product_id,
+                quantity=qty,
+                expedite_shipping=order.expedite_shipping,
+            ))
+    action = SupplyChainAction(orders=clipped_orders)
+
     return action, strategic_plan
 
 
@@ -152,22 +193,24 @@ def main():
         while not obs.done:
             action, strategic_plan = get_agent_action(obs)
 
-            print("[STEP]", json.dumps({
-                "task_id":   task_id,
-                "day":       obs.current_day,
-                "action":    action.model_dump(),
-                "reasoning": strategic_plan.strip(),
-            }))
+            requested = sum(o.quantity for o in action.orders)
 
             obs = env.step(action)
 
+            wh = obs.warehouse_status[0] if obs.warehouse_status else None
             print("[STEP]", json.dumps({
-                "task_id": task_id,
-                "day":     obs.current_day,
-                "reward":  round(obs.reward, 2),
-                "done":    obs.done,
-                "cash":    round(obs.cash_balance, 2),
-                "stock":   obs.warehouse_status[0].current_stock if obs.warehouse_status else 0,
+                "task_id":   task_id,
+                "day":       obs.current_day - 1,
+                "ordered":   requested,
+                "accepted":  env.last_accepted_qty,
+                "rejected":  env.last_rejected_qty,
+                "sold":      wh.sales_yesterday if wh else 0,
+                "missed":    wh.lost_sales_yesterday if wh else 0,
+                "stock":     wh.current_stock if wh else 0,
+                "cash":      round(obs.cash_balance, 2),
+                "reward":    round(obs.reward, 2),
+                "done":      obs.done,
+                "reasoning": strategic_plan.strip(),
             }))
 
         score = env.get_grader_score()
