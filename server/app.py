@@ -260,7 +260,10 @@ def demo_step_sim():
     obs = env.step(action)
     return {
         "observation": obs.model_dump(),
-        "reward": SupplyChainReward(
+        # reward is a plain float so the dashboard JS can use it directly
+        # (pnl chart, appendLog, etc.). Full breakdown is in reward_detail.
+        "reward": obs.reward,
+        "reward_detail": SupplyChainReward(
             step_reward=obs.reward,
             total_reward=env.total_reward,
             grader_score=env.get_grader_score(),
