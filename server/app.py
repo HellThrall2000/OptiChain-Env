@@ -13,7 +13,7 @@ Usage:
 """
 
 import logging
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -88,8 +88,14 @@ class ResetRequest(BaseModel):
 
 
 @app.post("/reset", response_model=SupplyChainObservation)
-def reset_env(req: ResetRequest):
-    """Wipe state and load a specific task (easy / medium / hard)."""
+def reset_env(req: Optional[ResetRequest] = Body(default=None)):
+    """Wipe state and load a specific task (easy / medium / hard).
+
+    The body is optional — the OpenEnv validator POSTs with no body, so we
+    fall back to the default task_01_easy when req is None.
+    """
+    if req is None:
+        req = ResetRequest()
     try:
         return env.reset(task_id=req.task_id, seed=req.seed)
     except ValueError as exc:
