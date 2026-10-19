@@ -211,6 +211,14 @@ This pattern defeats three failure modes common in small-LLM supply-chain agents
 
 ---
 
+## Achievements
+
+🏆 **Round 1 Qualified** — Meta PyTorch OpenEnv Hackathon x Scaler School of Technology (April 25–26, 2026)
+
+[![Round 1 Qualification Certificate](assets/round1-certificate.png)](assets/round1-certificate.pdf)
+
+---
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
